@@ -8,11 +8,18 @@
 node speaks**, specified so that a client can be written in any language
 **without reading the server's source**.
 
-[![licence](https://img.shields.io/badge/licence-Apache--2.0-6B5FD1)](LICENSE)
-[![version](https://img.shields.io/badge/protocol-v1.0-6B5FD1)](spec/protocol-v1.md)
-[![corpus](https://img.shields.io/badge/corpus-54%20cases-6B5FD1)](conformance)
+[![status](https://img.shields.io/badge/status-in%20development-D98E33?style=flat-square)](#status)
+[![licence](https://img.shields.io/badge/licence-Apache--2.0-6B5FD1?style=flat-square)](LICENSE)
+[![version](https://img.shields.io/badge/protocol-v1.0-6B5FD1?style=flat-square)](spec/protocol-v1.md)
+[![corpus](https://img.shields.io/badge/corpus-54%20cases-6B5FD1?style=flat-square)](conformance)
 
 </div>
+
+> [!NOTE]
+> **This specification is a working draft under active development.** It is
+> authoritative for the clients written from it, but it moves while the database
+> is pre-1.0, and it is upstream of the implementations — so it may describe
+> something the node does not do yet. See [**Status**](#status).
 
 Licence: **Apache-2.0**. The specification and the conformance corpus are
 permissively licensed on purpose — a protocol nobody may implement freely is not
@@ -80,7 +87,15 @@ See `spec/protocol-v1.md` §2.2.
 
 ## Status
 
-**Draft, authoritative.** The corpus is generated from the specification alone by
+**Stage: active development · draft, authoritative.**
+
+- ✅ **Settled:** the framing, the value codec, the outcome kinds, and the
+  54-case conformance corpus generated from this document.
+- 🚧 **Owed:** verification of every vector against a running node.
+- ⚠️ **Moves:** the specification changes without notice while the database it
+  describes is pre-1.0.
+
+The corpus is generated from the specification alone by
 a second, independent implementation — which is what makes it evidence that the
 document is sufficient, rather than a dump of one client's beliefs.
 

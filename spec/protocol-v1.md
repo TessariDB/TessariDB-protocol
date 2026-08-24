@@ -162,6 +162,12 @@ A client that reads something other than `BGVW` reports *not this protocol* and
 closes. A client that reads a **major** it does not implement reports *wrong
 version*, carrying both the version found and the version supported, and closes.
 
+**The magic is judged on its own four bytes, before the version bytes are read.**
+A peer that is not a node owes nothing: it may send three bytes of an HTTP
+request line and hang up. A client that waits for all six first reports that as a
+truncated stream, which sends whoever reads the error to the network — when the
+answer is that the address is wrong.
+
 **A differing minor is not a refusal.** The client keeps the peer's minor, and
 uses it for exactly one thing: deciding not to send what an older peer cannot
 read. It never gates decoding, because decoding is already safe — an unknown
@@ -285,6 +291,13 @@ The length is also a bound, not just a cursor. A client MUST NOT read past it
 while decoding a **recognised** outcome either: a tag whose body claims more than
 its length allows is malformed, and treating the length as advisory turns one
 corrupt outcome into a mis-parse of every outcome after it.
+
+Bytes left over **inside** an outcome, after a client has decoded everything its
+build knows about that tag, MUST be skipped rather than treated as an error. This
+is the opposite of §4.8's rule for a *value* payload, and deliberately so: it lets
+a later minor append a field to an outcome kind that already exists, and an older
+client keeps reading the part it understands. A value payload has no such
+allowance because it has no length to resume from.
 
 Tag `255` is reserved for the client's own report of an unrecognised tag and is
 never sent by a node.

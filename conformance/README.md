@@ -1,6 +1,6 @@
 # Conformance corpus
 
-Test vectors for the value codec of protocol version 3.
+Test vectors for the value codec of protocol version 1.0.
 
 ## What a vector claims
 
@@ -38,13 +38,13 @@ wrong.
 
 ## Running it
 
-Point your client's test suite at `values-v3.json`.
+Point your client's test suite at `values-v1.json`.
 
 The reference Rust client reads it from a sibling checkout by default, or from
 `BGV_PROTOCOL_CORPUS`:
 
 ```sh
-BGV_PROTOCOL_CORPUS=/path/to/values-v3.json cargo test --test conformance
+BGV_PROTOCOL_CORPUS=/path/to/values-v1.json cargo test --test conformance
 ```
 
 **A missing corpus must fail, not skip.** A conformance suite that passes having
@@ -54,11 +54,16 @@ having no suite — someone will read the green and believe it.
 ## Regenerating
 
 ```sh
-python3 generate.py > values-v3.json
+python3 generate.py > values-v1.json   # rewrite it
+python3 generate.py --check            # exit 1 if the committed file differs
 ```
 
+`--check` is what stops the corpus and its generator from drifting apart, and it
+is the reason the file must never be hand-edited: a vector corrected by hand is a
+vector no implementation produces.
+
 `generate.py` is a **second implementation** of the codec, written from
-`../spec/protocol-v3.md` alone and depending on nothing but the standard library.
+`../spec/protocol-v1.md` alone and depending on nothing but the standard library.
 That is the point of it: a corpus dumped out of the reference client would record
 that client's beliefs, including anywhere it and the document disagree. Two
 independent readings agreeing byte for byte is evidence that the document says
@@ -79,9 +84,10 @@ the database.
 
 ## Coverage
 
-38 vectors as of the current generation, spanning all fifteen value types, all
-three number shapes, all four record-id discriminants, all three bound kinds, the
-escape sequences, and one value nested through every container.
+54 vectors as of the current generation, spanning all seventeen value types, all
+seven geometry shapes, all three number shapes, all four record-id discriminants,
+all three bound kinds, the escape sequences, and one value nested through every
+container.
 
 Deliberately included because they are where implementations diverge:
 
@@ -94,3 +100,9 @@ Deliberately included because they are where implementations diverge:
 | `none-is-not-null` | two values JSON cannot tell apart |
 | `record-bytes-id-with-zeros` | escaping, including a trailing zero |
 | `string-unicode` | a length in bytes, not characters |
+| `geometry-point` | latitude written first — the silent geospatial bug |
+| `geometry-point-negative-zero` | a coordinate compared by value rather than by bits |
+| `geometry-polygon-with-a-hole` | an interior-ring count skipped when there are no holes |
+| `geometry-collection-nested` | a collection member read as a shape rather than a whole geometry |
+| `geometry-line-empty` | a decoder that refuses what the codec permits |
+| `regex-with-a-backslash` | a client that compiles the pattern instead of carrying it |

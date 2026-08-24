@@ -30,20 +30,28 @@ So the specification comes first and lives on its own:
 
 | path | what it is |
 |---|---|
-| `spec/protocol-v3.md` | the normative specification of protocol version 3 |
+| `spec/protocol-v1.md` | the normative specification of protocol version 1.0 |
 | `conformance/` | executable test vectors every client is checked against |
 | `conformance/README.md` | how to run the corpus against a client |
 
 ## The version, and what it promises
 
-**Version 3 is current, not final.** The protocol carries a version byte that
-moves whenever a body layout changes — it went to 2 when a records answer began
-carrying table names, and to 3 when a request began carrying bound parameter
-values. A client pins the version it implements and refuses others at the
-greeting, which is where the protocol already refuses them.
+The greeting carries **two numbers**. A differing **major** is refused at the
+greeting; a differing **minor** is not — each side simply learns the other's and
+declines to send what the older one cannot read.
 
-The value encoding is **not frozen**. This document specifies what version 3 is,
-and the version byte is the mechanism by which a version 4 may differ.
+The skip is what makes that promise real: every outcome carries its own length,
+so a client that meets an outcome kind it has never seen steps over it and
+carries on. That is why **a new outcome kind is `minor` and a new value type is
+`major`** — a value nested inside an array carries no length of its own, so an
+unknown tag there ends the parse and there is nowhere to resume from.
+
+**Why the first version is 1.0 and not 4.** During development a single version
+byte moved twice, correctly by its own rule and pointlessly by purpose: a version
+exists to refuse a mismatch between builds that are *deployed*, and nothing was.
+Before the first release the format changes freely and the version stands still.
+
+The value encoding is **not frozen**.
 
 ## The one detail that catches every new client
 
@@ -56,14 +64,18 @@ duration, datetime and integer record id wrong — and a round-trip test will no
 notice, because its encoder and decoder are wrong in the same way. The corpus
 pins the bytes for exactly this reason.
 
-See `spec/protocol-v3.md` §2.2.
+See `spec/protocol-v1.md` §2.2.
 
 ## Status
 
-**Draft, authoritative.** The specification was written from the node's own
-source, and the corpus from the specification alone by a second, independent
-implementation — which is what makes the corpus evidence that the document is
-sufficient rather than merely a dump of one client's beliefs.
+**Draft, authoritative.** The corpus is generated from the specification alone by
+a second, independent implementation — which is what makes it evidence that the
+document is sufficient, rather than a dump of one client's beliefs.
+
+The document is **upstream of the implementations**: a layout is decided here,
+then built in the node, then in the clients. So the specification may briefly
+describe something the node does not yet do, and where it does, the entry below
+says so.
 
 Still owed: verification of every vector against a **running node**. Until that
 lands, the corpus proves that two independent readings of this document agree,
@@ -71,7 +83,7 @@ which is strong but is not the same claim.
 
 ## Contributing a client
 
-1. Read `spec/protocol-v3.md`. Do not read the server.
+1. Read `spec/protocol-v1.md`. Do not read the server.
 2. Implement the value codec and the frame codec.
 3. Run `conformance/` against your implementation. Every vector, both directions.
 4. Where the document did not answer a question you had, open an issue here. That

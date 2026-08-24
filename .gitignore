@@ -2,3 +2,12 @@
 *.pyc
 __pycache__/
 .DS_Store
+
+# Governance state is local to the working copy and is never published.
+# This repository is public, so the omission is load-bearing rather than tidy.
+.bgv
+.bgv/
+.githooks/
+CLAUDE.md
+AGENTS.md
+MEMORY.md

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate the value-codec conformance corpus for protocol version 3.
+"""Generate the value-codec conformance corpus for protocol version 1.
 
 This is a **second, independent implementation** of the value codec, written from
-`spec/protocol-v3.md` alone. It exists so the corpus is evidence that the
+`spec/protocol-v1.md` alone. It exists so the corpus is evidence that the
 specification is sufficient — a corpus dumped out of the reference client would
 only record that client's beliefs, including any place it and the document
 disagree.
@@ -11,12 +11,17 @@ Deliberately no dependency on anything but the standard library, and no referenc
 to any other implementation while it was written.
 
 Usage:
-    python3 generate.py > values-v3.json
+    python3 generate.py > values-v1.json     regenerate the corpus
+    python3 generate.py --check              fail if the committed corpus differs
 """
 
+import argparse
 import json
+import pathlib
 import struct
 import sys
+
+CORPUS = pathlib.Path(__file__).with_name("values-v1.json")
 
 # --- §4.1 type tags -----------------------------------------------------------
 TAG_NONE = 0x01
@@ -34,6 +39,17 @@ TAG_ARRAY = 0x0C
 TAG_OBJECT = 0x0D
 TAG_RANGE = 0x0E
 TAG_SET = 0x0F
+TAG_GEOMETRY = 0x10
+TAG_REGEX = 0x11
+
+# --- §4.6 geometry shape kinds ------------------------------------------------
+SHAPE_POINT = 0x01
+SHAPE_LINE = 0x02
+SHAPE_POLYGON = 0x03
+SHAPE_MULTI_POINT = 0x04
+SHAPE_MULTI_LINE = 0x05
+SHAPE_MULTI_POLYGON = 0x06
+SHAPE_COLLECTION = 0x07
 
 # --- §4.3 number kinds --------------------------------------------------------
 NUM_INTEGER = 0x01
@@ -164,7 +180,65 @@ def encode(value: dict) -> bytes:
     if kind == "set":
         out = bytes([TAG_SET]) + put_u32(len(held))
         return out + b"".join(encode(item) for item in held)
+    if kind == "geometry":
+        return bytes([TAG_GEOMETRY]) + encode_geometry(held)
+    if kind == "regex":
+        # The pattern as written. Not compiled here, and §7 item 15 says not
+        # compiled in a client either — dialects disagree about what is valid,
+        # so a validating client rejects patterns the node would have accepted.
+        return bytes([TAG_REGEX]) + put_lenbytes(held.encode("utf-8"))
     raise ValueError(f"no such value kind: {kind}")
+
+
+# --- §4.6 geometry ------------------------------------------------------------
+def encode_position(held: dict) -> bytes:
+    """Longitude first, each as the double's bits, plain big-endian (§4.6).
+
+    Bits rather than a decimal literal, for the reason the corpus writes floats
+    as bits everywhere else: a coordinate that goes through decimal text is a
+    different coordinate, and the difference survives every round trip a single
+    implementation can perform on itself.
+    """
+    longitude = bytes.fromhex(held["lon"])
+    latitude = bytes.fromhex(held["lat"])
+    if len(longitude) != 8 or len(latitude) != 8:
+        raise ValueError("a coordinate is eight bytes of IEEE-754 bits")
+    return longitude + latitude
+
+
+def encode_positions(held: list) -> bytes:
+    return put_u32(len(held)) + b"".join(encode_position(one) for one in held)
+
+
+def encode_polygon(held: dict) -> bytes:
+    out = encode_positions(held["exterior"])
+    interiors = held.get("interiors", [])
+    out += put_u32(len(interiors))
+    return out + b"".join(encode_positions(ring) for ring in interiors)
+
+
+def encode_geometry(held: dict) -> bytes:
+    kind, shape = next(iter(held.items()))
+    if kind == "point":
+        return bytes([SHAPE_POINT]) + encode_position(shape)
+    if kind == "line":
+        return bytes([SHAPE_LINE]) + encode_positions(shape)
+    if kind == "polygon":
+        return bytes([SHAPE_POLYGON]) + encode_polygon(shape)
+    if kind == "multipoint":
+        return bytes([SHAPE_MULTI_POINT]) + encode_positions(shape)
+    if kind == "multiline":
+        out = bytes([SHAPE_MULTI_LINE]) + put_u32(len(shape))
+        return out + b"".join(encode_positions(line) for line in shape)
+    if kind == "multipolygon":
+        out = bytes([SHAPE_MULTI_POLYGON]) + put_u32(len(shape))
+        return out + b"".join(encode_polygon(one) for one in shape)
+    if kind == "collection":
+        out = bytes([SHAPE_COLLECTION]) + put_u32(len(shape))
+        # Recursive, and each member carries its own kind byte — which is what
+        # lets a collection hold a collection.
+        return out + b"".join(encode_geometry(one) for one in shape)
+    raise ValueError(f"no such shape: {kind}")
 
 
 def encode_record_id(held: dict) -> bytes:
@@ -192,6 +266,31 @@ def encode_bound(held) -> bytes:
 
 
 # --- the cases ----------------------------------------------------------------
+def bits(number: float) -> str:
+    """The double's bits as hex, for writing a coordinate readably below.
+
+    The literal is converted once, here, by the language's own decimal-to-double
+    rule; what reaches the corpus is the bit pattern. A client never sees the
+    decimal and so never has to agree about how to parse it.
+    """
+    return struct.pack(">d", number).hex()
+
+
+def at(longitude: float, latitude: float) -> dict:
+    """A position, longitude first — the argument order the bytes are in."""
+    return {"lon": bits(longitude), "lat": bits(latitude)}
+
+
+# A square, closed: the first and last position are the same one (§4.6).
+UNIT_SQUARE = [at(0.0, 0.0), at(1.0, 0.0), at(1.0, 1.0), at(0.0, 1.0), at(0.0, 0.0)]
+INNER_SQUARE = [
+    at(0.25, 0.25),
+    at(0.75, 0.25),
+    at(0.75, 0.75),
+    at(0.25, 0.75),
+    at(0.25, 0.25),
+]
+
 CASES = [
     ("none-is-not-null", "An absent field. Distinct from null, and the distinction is the point.", {"none": None}),
     ("null-is-not-none", "A present field holding nothing.", {"null": None}),
@@ -233,33 +332,115 @@ CASES = [
     ("nested-through-every-container", "An array holding an object holding a set holding a range.", {
         "array": [{"object": {"inner": {"set": [{"range": {"start": "unbounded", "end": {"included": {"string": "end"}}}}]}}}]
     }),
+    ("geometry-point", "Longitude first. Swapping the pair puts Paris in the Indian Ocean, and nothing reports it.", {
+        "geometry": {"point": at(2.3522, 48.8566)}
+    }),
+    ("geometry-point-negative-zero", "-0.0 and 0.0 are different coordinates here, because the comparison is on bits.", {
+        "geometry": {"point": at(-0.0, 0.0)}
+    }),
+    ("geometry-point-at-the-limits", "The corners of the valid range; the codec does not enforce them.", {
+        "geometry": {"point": at(-180.0, -90.0)}
+    }),
+    ("geometry-line", "Two positions, count-prefixed.", {
+        "geometry": {"line": [at(0.0, 0.0), at(1.0, 1.0)]}
+    }),
+    ("geometry-polygon-no-holes", "An interior-ring count of zero is still written.", {
+        "geometry": {"polygon": {"exterior": UNIT_SQUARE, "interiors": []}}
+    }),
+    ("geometry-polygon-with-a-hole", "Exterior ring, then the count, then each hole as its own ring.", {
+        "geometry": {"polygon": {"exterior": UNIT_SQUARE, "interiors": [INNER_SQUARE]}}
+    }),
+    ("geometry-multipoint", None, {
+        "geometry": {"multipoint": [at(0.0, 0.0), at(2.0, 3.0)]}
+    }),
+    ("geometry-multiline", "A count of lines, each of which is itself a count of positions.", {
+        "geometry": {"multiline": [[at(0.0, 0.0), at(1.0, 0.0)], [at(0.0, 1.0), at(1.0, 1.0)]]}
+    }),
+    ("geometry-multipolygon", None, {
+        "geometry": {"multipolygon": [{"exterior": UNIT_SQUARE, "interiors": []}]}
+    }),
+    ("geometry-collection-of-mixed-shapes", "Each member carries its own kind byte.", {
+        "geometry": {"collection": [{"point": at(1.0, 2.0)}, {"line": [at(0.0, 0.0), at(1.0, 1.0)]}]}
+    }),
+    ("geometry-collection-nested", "A collection may hold a collection, which is why the member is a whole geometry.", {
+        "geometry": {"collection": [{"collection": [{"point": at(0.0, 0.0)}]}]}
+    }),
+    ("geometry-line-empty", "Zero positions. Not a well-formed line; the codec still carries it.", {
+        "geometry": {"line": []}
+    }),
+    ("regex-simple", "The pattern as written, uncompiled.", {"regex": "^a.*z$"}),
+    ("regex-with-a-backslash", "A backslash is an ordinary byte to the codec.", {"regex": "\\d{3}-\\d{4}"}),
+    ("regex-empty", "Empty is a pattern; whether it is a useful one is the store's opinion, not the codec's.", {"regex": ""}),
+    ("regex-unicode", "Length is in bytes, as everywhere else.", {"regex": "привет+"}),
 ]
 
 
-def main() -> int:
+def build() -> str:
     cases = []
+    seen = set()
     for name, note, value in CASES:
+        if name in seen:
+            # A duplicate name would silently shadow a vector in any client that
+            # keys its results by name, and the shadowed one would look like it
+            # had passed.
+            raise ValueError(f"two cases named {name}")
+        seen.add(name)
         entry = {"name": name, "value": value, "bytes": encode(value).hex()}
         if note:
             entry["note"] = note
         cases.append(entry)
 
     document = {
-        "protocol_version": 3,
+        "protocol_major": 1,
+        "protocol_minor": 0,
         "what_this_is": (
             "Value-codec test vectors. `bytes` is authoritative: a client MUST "
             "encode `value` to exactly these bytes, and MUST decode these bytes "
             "to exactly this value. Integers are written as JSON strings because "
-            "the range exceeds what some languages parse safely, and floats as "
-            "their IEEE-754 bits for the same reason."
+            "the range exceeds what some languages parse safely, and floats and "
+            "geometry coordinates as their IEEE-754 bits for the same reason."
         ),
-        "generated_by": "conformance/generate.py, a second implementation written from spec/protocol-v3.md alone",
+        "run_it_both_ways": (
+            "Decoding alone does not check a codec. A codec that is wrong in the "
+            "same way on both sides round-trips perfectly: mutating both halves "
+            "of a client's inverted-i64 handling to plain big-endian left "
+            "thirteen of fourteen round-trip tests passing, and only a "
+            "byte-level comparison against these vectors caught it."
+        ),
+        "generated_by": "conformance/generate.py, a second implementation written from spec/protocol-v1.md alone",
         "not_yet_verified_against": "a running node",
         "cases": cases,
     }
-    json.dump(document, sys.stdout, indent=2, ensure_ascii=False)
-    sys.stdout.write("\n")
-    return 0
+    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="regenerate and compare against the committed corpus; do not write",
+    )
+    arguments = parser.parse_args()
+    fresh = build()
+
+    if not arguments.check:
+        sys.stdout.write(fresh)
+        return 0
+
+    if not CORPUS.exists():
+        sys.stderr.write(f"{CORPUS.name} is missing; run without --check to write it\n")
+        return 1
+    committed = CORPUS.read_text(encoding="utf-8")
+    if committed == fresh:
+        sys.stderr.write(f"{CORPUS.name} matches the generator ({len(CASES)} cases)\n")
+        return 0
+    sys.stderr.write(
+        f"{CORPUS.name} DIFFERS from the generator. "
+        "Either the generator changed and the corpus was not regenerated, or the "
+        "corpus was hand-edited — which it must never be.\n"
+    )
+    return 1
 
 
 if __name__ == "__main__":

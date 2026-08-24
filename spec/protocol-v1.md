@@ -1,6 +1,6 @@
 # bgv-db protocol — specification for client implementers
 
-**Protocol version 3.** Drafted 2026-08-24.
+**Protocol version 1.0.** Drafted 2026-08-24.
 
 Status: **draft, authoritative.** This document is the source of truth for every
 client, in every language. A client is written from this document, not from the
@@ -11,12 +11,25 @@ Licence of the clients: **Apache-2.0**. The server is licensed separately —
 its licence is a distinct decision from the clients', and the two are not
 described as sharing one.
 
-**Version 3 is current, not final.** The protocol carries a version byte that
-moves whenever a body layout changes — it went to 2 when a records answer began
-carrying table names, and to 3 when a request began carrying bound parameter
-values. This document specifies version 3. A client pins the version it
-implements and refuses others at the greeting, which is where the protocol
-already refuses them.
+**Why the first version is 1.0 and not 4.** During development the protocol
+carried a single version byte that moved whenever a body layout changed: it went
+to 2 when a records answer began carrying table names, and to 3 when a request
+began carrying bound parameter values. Both moves were correct by that rule and
+pointless by purpose. **A version exists to refuse a mismatch between builds that
+are deployed**, and nothing was deployed — so the bumps protected nothing, and
+left behind a protocol whose first public version would be 3 with two
+predecessors no client author will ever have seen.
+
+So the count starts where the audience starts. Section 2.3 states the policy the
+version now follows.
+
+> **Ahead of the implementations, as of this revision.** This document is
+> upstream of the node and the clients: a layout is decided here first. Three
+> things it now specifies are not yet built — the six-byte greeting (3.1), the
+> length in front of every outcome (3.5), and the two new value types
+> `0x10` / `0x11` in a client (4.1). The node already encodes the two types. This
+> note is deleted when the last of them lands, and its presence means the gap is
+> known rather than unnoticed.
 
 ---
 
@@ -33,7 +46,7 @@ A node serves two surfaces and **neither carries everything**.
 | health, readiness, metrics | — | yes |
 
 **The choice is forced, not a preference.** HTTP answers are JSON, which carries
-six types; the store's value model has **fifteen**. An HTTP-only client would
+six types; the store's value model has **seventeen**. An HTTP-only client would
 reach every route and silently narrow every statement result — invisibly, because
 a value that has been through JSON is still a valid value and nothing at the call
 site shows what was lost. A wire-only client keeps every type and cannot store a
@@ -92,6 +105,43 @@ does not fail to parse; it returns wrong values.
 > writer, so the bytes carry it. A client must reproduce the bytes, not the
 > rationale.
 
+### 2.3 Versioning — what the two numbers promise
+
+The greeting carries **`major` then `minor`**, one byte each (3.1).
+
+| numbers differ in | what a client does |
+|---|---|
+| `major` | **refuse at the greeting.** The bodies are not the same protocol and no conversation is possible. |
+| `minor` | **proceed.** Each side learns the other's minor. A newer node must not assume a feature the older peer's minor lacks; an older client must be able to *skip* what a newer node sends. |
+
+**The skip is what makes `minor` mean anything**, and it is why every outcome
+carries its own length (3.5). Without a length, a client meeting an outcome tag
+it did not know could not find where that outcome ended, so it could not read the
+next one — which would make every new outcome kind breaking, which is precisely
+what `minor` is supposed not to be. Four bytes per outcome buys the whole
+guarantee.
+
+**A new value type is `major`; a new outcome kind is `minor`.** The asymmetry is
+a limit of the encoding rather than a policy preference, and is stated here so
+that nobody later assumes otherwise:
+
+- A value at the **top** of an outcome is length-delimited by that outcome, so a
+  client that cannot decode it still knows how long it was.
+- A value **nested** inside an array, object, set or range is not. Tags follow one
+  another with no lengths, so an unknown tag inside a collection ends the parse
+  and there is nowhere to resume from.
+
+Length-prefixing nested values would remove that limit and cost four bytes **per
+element** — on a 1536-dimension embedding stored as an array, six kilobytes of
+overhead per record, against no benefit any caller has named. Refused
+deliberately, and revisitable only if nested values acquire lengths for some
+other reason.
+
+**Before the first release the format changes freely and the version stands
+still.** Bumping begins when a client exists that a refusal is addressed to. The
+rule "the version moves when the layout moves" is right after release and is pure
+ceremony before it.
+
 ---
 
 ## 3. The wire protocol
@@ -102,12 +152,21 @@ TCP. On connect, **both sides send** the greeting before anything else:
 
 ```
 "BGVW"   4 bytes, ASCII, literally 0x42 0x47 0x56 0x57
-version  1 byte, currently 3
+major    1 byte, currently 1
+minor    1 byte, currently 0
 ```
 
+Six bytes.
+
 A client that reads something other than `BGVW` reports *not this protocol* and
-closes. A client that reads a version it does not implement reports *wrong
+closes. A client that reads a **major** it does not implement reports *wrong
 version*, carrying both the version found and the version supported, and closes.
+
+**A differing minor is not a refusal.** The client keeps the peer's minor, and
+uses it for exactly one thing: deciding not to send what an older peer cannot
+read. It never gates decoding, because decoding is already safe — an unknown
+outcome is skipped by its length (3.5) and an unknown frame kind closes the
+connection (3.3).
 
 Both refusals happen **at the greeting**, never mid-conversation. A version
 mismatch discovered later arrives as a decode failure that reads like corruption.
@@ -195,7 +254,13 @@ u32     outcome count
 
 One outcome per statement in the script, in order.
 
-Each outcome begins with **one tag byte**:
+Each outcome is:
+
+```
+u32     length — the bytes that follow, tag included
+u8      tag
+...     the rest, per the tag
+```
 
 | tag | outcome | rest of the outcome |
 |---|---|---|
@@ -206,23 +271,23 @@ Each outcome begins with **one tag byte**:
 | 4 | Removed | `u64` count of records a conditional delete removed |
 | 255 | Unknown | nothing |
 
-**Any tag a client does not recognise decodes as `Unknown`.** A client MUST
-expose it to its caller rather than dropping the outcome or erroring the whole
-answer: a newer node may answer with something this client has never seen, and
-saying so is honest where guessing at its content is not.
+**The length is what makes an unknown outcome survivable.** A client that does
+not recognise a tag reads the length, yields `Unknown`, **steps over the
+remaining bytes**, and carries on with the next outcome — so a newer node may
+introduce an outcome kind anywhere in an answer without breaking an older client.
 
-> **Known limitation — an unknown outcome cannot be skipped.** An outcome carries
-> no length of its own, so there is no way to find where an unrecognised one ends
-> and the next begins. A client MUST therefore stop reading outcomes at the first
-> `Unknown` and return what it has, with the `Unknown` last; continuing would
-> decode that outcome's payload as the next outcome's tag and produce plausible
-> garbage.
->
-> The consequence is that **forward compatibility across outcome kinds holds only
-> while an unknown outcome is the last in its answer.** A node that introduces a
-> new outcome kind in a non-final position breaks older clients in a way they
-> cannot detect. Giving each outcome a length prefix would remove the limit
-> entirely and is the obvious candidate for a version 4.
+A client MUST expose an `Unknown` to its caller rather than dropping it or
+erroring the whole answer: a newer node may answer with something this client has
+never seen, and saying so is honest where guessing at its content is not. A
+client MUST NOT stop reading at the first `Unknown`.
+
+The length is also a bound, not just a cursor. A client MUST NOT read past it
+while decoding a **recognised** outcome either: a tag whose body claims more than
+its length allows is malformed, and treating the length as advisory turns one
+corrupt outcome into a mis-parse of every outcome after it.
+
+Tag `255` is reserved for the client's own report of an unrecognised tag and is
+never sent by a node.
 
 The **access path** byte in a Records outcome names how the store found them:
 
@@ -352,10 +417,10 @@ cannot know it was safe to repeat.
 
 ---
 
-## 4. Value encoding, version 3
+## 4. Value encoding
 
-The fifteen types the store carries. This is what `bytes` fields in sections 3.4,
-3.5 and 3.8 contain.
+The seventeen types the store carries. This is what `bytes` fields in sections
+3.4, 3.5 and 3.8 contain.
 
 Uses the **value-layer primitives** of section 2.2 — note the inverted `i64`.
 
@@ -381,6 +446,8 @@ data already written carries them.
 | `0x0d` | object | `u32` count · repeated: `lenbytes` field name (UTF-8) · value |
 | `0x0e` | range | start bound (4.4) · end bound (4.4) |
 | `0x0f` | set | `u32` count · that many values, recursively |
+| `0x10` | geometry | 4.6 |
+| `0x11` | regex | `lenbytes`, UTF-8 — the pattern as written, uncompiled |
 
 **An unknown type tag is an error, never a guess.** A codec that infers the type
 from what follows reads a newer format as a plausible wrong value, and nothing
@@ -467,7 +534,71 @@ One discriminant byte, then the payload. **Fixed forever.**
 Fixed-width variants carry no terminator, because the discriminant declares the
 width. Variable-width ones are terminated per 4.2.
 
-### 4.6 Trailing bytes
+### 4.6 Geometry
+
+Shapes on a sphere. The set is RFC 7946's, so a shape stored here can leave
+without translation and one arriving from a client needs no dialect.
+
+One shape-kind byte, then the payload. **Permanent and never renumbered**, for
+the reason the value tags are: a shape already written carries this byte.
+
+| kind | shape | payload |
+|---|---|---|
+| `0x01` | point | one `position` |
+| `0x02` | line | `positions` |
+| `0x03` | polygon | one `polygon` |
+| `0x04` | multipoint | `positions` |
+| `0x05` | multiline | `u32` count · that many `positions` |
+| `0x06` | multipolygon | `u32` count · that many `polygon` |
+| `0x07` | collection | `u32` count · that many **geometries**, recursively (kind byte included) |
+
+The three composites:
+
+```
+position   fixed(8) longitude · fixed(8) latitude
+           each is the IEEE-754 double's *bits*, plain big-endian — not inverted
+positions  u32 count · that many `position`
+polygon    `positions` (the exterior ring)
+           u32 interior-ring count · that many `positions`
+```
+
+**A coordinate is longitude first.** RFC 7946 §3.1.1 fixes it, and the opposite
+order is the most common bug in geospatial code precisely because it is silent: a
+point in Paris becomes a point in the Indian Ocean, which is a perfectly valid
+place. A client that stores latitude first produces shapes that encode, decode,
+index and render without complaint, and are wrong.
+
+**Coordinates are bits, not text.** A client that formats a coordinate through a
+decimal string and parses it back has changed the value, and the change survives
+every round trip it can perform on its own. Read and write the eight bytes.
+
+**Altitude is not carried.** Two dimensions is what an index covers and what every
+predicate the store answers needs; a third would be stored, never queried, and
+would have to be preserved by every operation that touches a shape.
+
+**Validity is not enforced by the codec.** A decoder reports what the bytes said:
+a polygon ring that does not close, a coordinate off the sphere, and a line with
+one position all decode. A client MAY check a shape before sending it and SHOULD
+say which check it applies; the node applies its own on acceptance, and a client
+that refuses locally what the node would accept has invented a second rule.
+
+The consequences of the bit-level treatment are stated rather than left to be
+found: `0.0` and `-0.0` are **different** coordinates, and a NaN coordinate is
+equal to itself. Neither arises from a measurement; both would otherwise make a
+set of shapes misbehave in a way nothing reports.
+
+### 4.7 Regex
+
+A pattern is carried as **text, uncompiled** — the characters as written, in a
+`lenbytes` UTF-8 payload.
+
+Nothing in the protocol says which dialect the pattern is in, and a client MUST
+NOT compile it to decide whether it is valid: dialects disagree about what is
+valid, so a client that validates rejects patterns the node would have accepted
+and does it for a whole class of users at once. A pattern that the node cannot
+compile comes back as a refusal (3.6) in the store's own words.
+
+### 4.8 Trailing bytes
 
 After decoding one value from a payload, **the buffer must be exhausted**. Bytes
 remaining are an error, not something to ignore.
@@ -586,13 +717,16 @@ client author reimplements something no client ever sees.
 
 A conforming client:
 
-1. **MUST** send and verify the greeting before any frame, and refuse a version
-   it does not implement at that point.
+1. **MUST** send and verify the greeting before any frame, and refuse a **major**
+   it does not implement at that point — and **MUST NOT** refuse on a differing
+   minor.
 2. **MUST** refuse a declared frame length above 16 MiB **before allocating**,
    and **MUST NOT** send one.
 3. **MUST** close the connection on an unknown frame kind rather than skipping it.
-4. **MUST** decode an unrecognised outcome tag as `Unknown` and expose it, rather
-   than erroring the whole answer or dropping the outcome.
+4. **MUST** decode an unrecognised outcome tag as `Unknown`, **skip its remaining
+   bytes using the outcome's length, and continue with the next outcome** —
+   never stopping at it, erroring the whole answer, or dropping it silently. A
+   recognised outcome **MUST NOT** be read past its length either.
 5. **MUST** reject an unknown value type tag, an unknown number kind, an unknown
    bound kind, and an unknown record-id discriminant — never guess.
 6. **MUST** apply the `i64` sign inversion (2.2) in the value layer and **MUST
@@ -605,22 +739,44 @@ A conforming client:
 10. **MUST** provide a reconnect path for subscriptions, given the node's
     30-second drop of a non-reading subscriber.
 11. **MUST NOT** retry a statement that reached the store and failed there.
-12. **MUST** sort object fields by name when encoding.
+12. **SHOULD** emit object fields in name order (4.1) — a client-side
+    convenience, not a requirement the node depends on.
 13. **MUST** treat trailing bytes after a decoded value as an error.
-14. **MUST NOT** depend on the server's repository, in any language.
+14. **MUST** write a geometry's coordinates **longitude first**, as IEEE-754
+    bits, and **MUST NOT** round-trip them through a decimal string.
+15. **MUST NOT** compile or validate a regex pattern before sending it.
+16. **MUST NOT** depend on the server's repository, in any language.
 
 Verification is against a **running node**, not a mock: a mock proves the client
 agrees with its author's belief about the protocol, which is the belief most
-likely to be wrong. Where a public repository cannot run a private node, a shared
-conformance corpus of encoded vectors and expected decodings is the weaker
-substitute and must be labelled as such.
+likely to be wrong.
+
+Where a public repository cannot run a private node, the **shared conformance
+corpus** in `conformance/` is the substitute — weaker, and labelled as such. Its
+one real property is that it is generated by an implementation written from this
+document alone, so it disagrees when the document is unclear rather than when a
+client is.
+
+A client **MUST** run the corpus in **both directions**: decode each vector's
+bytes to the stated value, *and* encode the stated value back to the same bytes.
+One direction is not enough, and this is not a precaution — it is measured. A
+codec that is consistently wrong round-trips perfectly: mutating both sides of a
+client's `i64` handling to plain big-endian left thirteen of fourteen round-trip
+tests passing, and only the byte-level comparison caught it.
 
 ---
 
 ## 8. Open
 
-- **The codec is not frozen.** Version 3 is current. Whether the value encoding
-  is revised before the clients are published is an open product decision.
-- **This document's public home** is undecided. A multi-language specification
-  does not belong in any one language's client repository.
-- **A shared conformance corpus** does not exist yet; §7 depends on it.
+- **The codec is not frozen.** Version 1.0 is current, and 2.3's policy says the
+  format may still change without the version moving until the first release.
+  Whether the value encoding is revised before the clients are published is an
+  open product decision.
+- **Geometry and regex have no literal in the query language.** Both are storable
+  and readable as parameters and results, and neither can be written into a
+  script by hand. That is a language question rather than a protocol one, and it
+  does not affect a client — but a client author who tries to build one into a
+  statement will find out the hard way, so it is stated here.
+- **There is no geospatial predicate yet.** A geometry is a value the store
+  carries; `INSIDE`, `INTERSECTS` and distance are not part of this version, and
+  the access-path byte will gain no new value for them until they exist.

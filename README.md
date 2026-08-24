@@ -1,11 +1,23 @@
-# bgv-db protocol
+<div align="center">
 
-The wire and HTTP protocols a bgv-db node speaks, specified so that a client can
-be written in any language **without reading the server's source**.
+<img src="assets/logo/tessaridb-mark-256.png" alt="" width="88" height="88">
+
+# TessariDB protocol
+
+**The wire and HTTP protocols a [TessariDB](https://github.com/TessariDB/TessariDB)
+node speaks**, specified so that a client can be written in any language
+**without reading the server's source**.
+
+[![licence](https://img.shields.io/badge/licence-Apache--2.0-6B5FD1)](LICENSE)
+[![version](https://img.shields.io/badge/protocol-v1.0-6B5FD1)](spec/protocol-v1.md)
+[![corpus](https://img.shields.io/badge/corpus-54%20cases-6B5FD1)](conformance)
+
+</div>
 
 Licence: **Apache-2.0**. The specification and the conformance corpus are
 permissively licensed on purpose — a protocol nobody may implement freely is not
-a protocol, it is an API.
+a protocol, it is an API. The server is licensed separately, and that licence
+reaches neither this document nor anything written from it.
 
 ---
 

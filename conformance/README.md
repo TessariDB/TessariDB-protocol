@@ -41,10 +41,10 @@ wrong.
 Point your client's test suite at `values-v1.json`.
 
 The reference Rust client reads it from a sibling checkout by default, or from
-`BGV_PROTOCOL_CORPUS`:
+`TESSARI_PROTOCOL_CORPUS`:
 
 ```sh
-BGV_PROTOCOL_CORPUS=/path/to/values-v1.json cargo test --test conformance
+TESSARI_PROTOCOL_CORPUS=/path/to/values-v1.json cargo test --test conformance
 ```
 
 **A missing corpus must fail, not skip.** A conformance suite that passes having

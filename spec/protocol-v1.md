@@ -1,4 +1,4 @@
-# bgv-db protocol — specification for client implementers
+# TessariDB protocol — specification for client implementers
 
 **Protocol version 1.0.** Drafted 2026-08-24.
 
@@ -151,14 +151,14 @@ ceremony before it.
 TCP. On connect, **both sides send** the greeting before anything else:
 
 ```
-"BGVW"   4 bytes, ASCII, literally 0x42 0x47 0x56 0x57
+"TESS"   4 bytes, ASCII, literally 0x54 0x45 0x53 0x53
 major    1 byte, currently 1
 minor    1 byte, currently 0
 ```
 
 Six bytes.
 
-A client that reads something other than `BGVW` reports *not this protocol* and
+A client that reads something other than `TESS` reports *not this protocol* and
 closes. A client that reads a **major** it does not implement reports *wrong
 version*, carrying both the version found and the version supported, and closes.
 
@@ -623,7 +623,7 @@ remaining are an error, not something to ignore.
 **18 callable routes and 13 refusal behaviours.** Authentication is HTTP Basic and
 nothing else. A store with no users declared is **open** and runs anything; the
 first `DEFINE USER` closes it, and from then on a request without a credential is
-answered `401` with a `WWW-Authenticate: Basic realm="bgv-db"` header.
+answered `401` with a `WWW-Authenticate: Basic realm="TessariDB"` header.
 
 There is no TLS here either.
 
@@ -720,7 +720,7 @@ client author reimplements something no client ever sees.
 - **Schema validation.** The catalog is on the server. A client that checks that a
   table exists, a field is indexed, or types match is making a claim that fails in
   production rather than in a test.
-- **A second query language.** Statements are bgvQL. A query builder produces the
+- **A second query language.** Statements are TessariQL. A query builder produces the
   grammar the server's own parser accepts, and that is proven by round-tripping
   built queries through that parser — not by inspection.
 

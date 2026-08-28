@@ -271,7 +271,7 @@ u8      tag
 | tag | outcome | rest of the outcome |
 |---|---|---|
 | 0 | Done | nothing |
-| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) |
+| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) · `u32` note count · repeated: `text` kind, `text` message |
 | 2 | Value | names (3.9) · `bytes` value (§4) |
 | 3 | Keys | `u32` count · repeated `text` |
 | 4 | Removed | `u64` count of records a conditional delete removed |
@@ -310,10 +310,29 @@ The **access path** byte in a Records outcome names how the store found them:
 | 1 | `index` |
 | 2 | `scan` |
 | 3 | `ordered` |
+| 4 | `approximate` |
+| 5 | `graph` |
+| 6 | `join` |
+| 7 | `materialised` |
 | any other | `scan` |
 
 An unrecognised path reads as `scan`, which is the honest answer for a path this
 build has no name for: it is the one path that promises nothing.
+
+**The notes are the newest field and sit last**, which is what makes them a minor
+addition rather than a breaking one: a client built before they existed reads the
+records, finds bytes it has no field for, and skips them by the rule above. A
+client built after them and talking to a node built before them finds the body
+**ends** after the records — and MUST read that as a node with nothing to say,
+not as a truncation. Both directions follow from the length in front, and neither
+needs the minor to be consulted; the minor gates features that cannot be skipped,
+and this one can.
+
+A note is a **kind and a message**, not a structure. A client's two uses are to
+group by the first and show the second, and a typed note would put the node's
+whole note vocabulary into every client's build for no gain. A client MUST NOT
+treat an unfamiliar kind as an error: kinds are added the same way outcome tags
+are.
 
 **Record identities are text**, exactly as the store spells them — not a parsed
 structure. A client that wants to name a record writes that text into its next

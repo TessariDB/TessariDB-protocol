@@ -696,7 +696,7 @@ there is one, comes from the statement's own permission check.
 | GET | `/files/{ns}/{db}/{bucket}` | session | 200 | json (bucket listing) |
 | HEAD | `/files/{ns}/{db}/{bucket}/{path…}` | session | 200 / 404 | octet-stream |
 | HEAD | `/files/{ns}/{db}/{bucket}` | session | 200 | json |
-| DELETE | `/files/{ns}/{db}/{bucket}/{path…}` | session | 204 | json |
+| DELETE | `/files/{ns}/{db}/{bucket}/{path…}` | session | 204 | — (no body) |
 | GET | `/` | open | 200 | `text/html` — console, build-conditional |
 | GET | `/console.css` | open | 200 | `text/css` — build-conditional |
 | GET | `/console.js` | open | 200 | `text/javascript` — build-conditional |
@@ -723,6 +723,20 @@ Notes a client implementer needs:
   **names**, interpolated into a statement, and the check is what makes that safe.
   The `{path…}` is a **value**, carried as a parameter — a file may be named
   anything, and slashes inside it are part of the name, not directories.
+- **The server percent-decodes `{path…}`, and a client MUST therefore encode
+  it.** Every byte outside the unreserved set `A-Za-z0-9-._~` is percent-encoded,
+  and `/` is left as itself because a slash in a file name reaches the server as a
+  slash. This is not optional and it is not cosmetic: an unencoded space makes the
+  request **line** unparseable rather than merely wrong, and an unencoded `%` asks
+  the server to decode an escape the caller never wrote — so `100% done.txt` is
+  sent as `100%25%20done.txt` and stored under the name the caller gave. Encoding
+  more than the minimum is safe, since the server decodes what arrives; encoding
+  less is not.
+- **A bucket is declared with `DEFINE BUCKET` and is not a table.** `PUT`, `GET`
+  and `DELETE` against a name that is a table refuse with *"… is not a bucket"*.
+  A client does not check this — the catalog is the server's — but a client's
+  documentation should say it, because the first attempt otherwise looks like a
+  routing fault rather than a missing declaration.
 - `POST /script` branches on `Content-Type` containing `application/json`: a JSON
   body is an envelope carrying a script and parameters; any other body **is** the
   script. The shape is decided by what the caller declares, never by sniffing.
@@ -817,6 +831,26 @@ staged shutdown, where `/ready` reports `leaving` while `/health` still reports
 `ok` — and that window is the whole reason both exist. A supervisor reads
 *not ready* as **stop sending traffic here** and *not healthy* as **restart
 this**; a client that reports one for the other inverts an operational decision.
+
+**The object routes** answer these, and the distinctions matter more than the
+shapes do:
+
+```json
+{"written": true}          // PUT, 201
+{"error": "no such file"}  // GET or HEAD, 404
+```
+
+- `PUT` answers `201` with a body that carries nothing the status does not. A
+  client need not read it.
+- `404` on `GET` is an **answer**: the file is not there. It carries a fixed
+  sentence with none of the caller's input in it, and it is not the same as a
+  file that exists and is empty — that answers `200` with `Content-Length: 0`. A
+  client that reported both as "no bytes" would erase a distinction the server
+  draws.
+- `DELETE` answers `204` with **no body at all**, and answers `204` whether or
+  not the file was there. Deletion is therefore **idempotent**, and a client may
+  say so; the server reports no difference between removing a file and finding
+  none, so a client that claimed to know which had happened would be inventing it.
 
 **Escaping is real and must not be hand-parsed.** These strings carry arbitrary
 user input through JSON escaping — a namespace named with a quote arrives as
@@ -920,6 +954,17 @@ tests passing, and only the byte-level comparison caught it.
   open product decision, and it is a **version** decision rather than a quiet
   one, which is why clients are required to refuse unrecognised framing loudly.
 
+- **The bucket listing has no normative shape, and a client should not depend on
+  its current one.** `GET /files/{ns}/{db}/{bucket}` answers `200`, and what it
+  answers today is a statement result wrapped in a key — it carries the query
+  plan that produced it and a storage-level chunk count, neither of which a client
+  has any business reading. Section 5.4 deliberately does not write that down: a
+  shape specified here binds every client in every language, and this one would
+  bind them to an internal detail. The same route also answers `200` for a name
+  that is a **table** rather than a bucket, where `PUT`, `GET` and `DELETE` all
+  refuse — one route out of four disagreeing about what a bucket is. Both are open
+  against the server. A client may list a bucket once the shape is settled; until
+  then it is the one route on this surface with no contract.
 - **There is no geospatial predicate yet.** A geometry is a value the store
   carries; `INSIDE`, `INTERSECTS` and distance are not part of this version, and
   the access-path byte will gain no new value for them until they exist.

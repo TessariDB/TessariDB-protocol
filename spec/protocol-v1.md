@@ -748,6 +748,81 @@ Notes a client implementer needs:
 `401` and `403` are different and a client must keep them apart: `401` means sign
 in, `403` means the grants do not cover this and signing in again will never help.
 
+### 5.3 Message framing
+
+Every response carries `Content-Length`. A server implementing this protocol
+**MUST** declare the length of every response body, and **MUST NOT** use
+`Transfer-Encoding: chunked` on any route. This includes `GET /backup`, the one
+route whose body has no small upper bound: the log is materialised and its length
+declared, rather than streamed.
+
+A client **MUST** refuse a response whose framing it does not recognise, with a
+named error, rather than attempting to read it. Guessing at an unrecognised
+framing turns a protocol change into a silently truncated body, which is a wrong
+answer that looks like a short one.
+
+**A `HEAD` response carries the `Content-Length` its `GET` would carry, and no
+body.** A client **MUST** decide whether to read a body from the **method it
+sent**, never from the presence of `Content-Length` in the response. A reader
+that trusts the header on a `HEAD` waits for bytes that are never coming — a
+permanent hang rather than a slow read, and the failure is indistinguishable from
+an unresponsive server.
+
+Two consequences an implementer should plan for rather than discover:
+
+- `GET /backup` returns the whole log in one response, so a client's memory
+  ceiling for that route is the size of the log. There is no resumption and no
+  range support in this version.
+- `HEAD` costs what `GET` costs on the server (section 5.1), and now also costs
+  the caller a decision: it saves transfer, not work.
+
+### 5.4 JSON bodies
+
+Where section 5.1 says `json`, the shapes are these. All are objects.
+
+**Every refusal** — every row of section 5.2 answered `json` — carries a single
+field:
+
+```json
+{"error": "a sentence naming what was refused"}
+```
+
+The sentence is meant for a person. It is **not** a stable identifier and a
+client **MUST NOT** branch on its text; branch on the status code, which is what
+section 5.2 enumerates. The sentence frequently embeds the caller's own input —
+a name, a path, a byte range — and is therefore arbitrary text.
+
+**`GET /health` and `GET /ready`** answer one of three shapes, and the field sets
+differ:
+
+```json
+{"status": "ok",      "committed": 41}
+{"status": "unwell",  "committed": 41, "background_errors": 2, "complaint": "…"}
+{"status": "leaving"}
+```
+
+`ok` is `200`; `unwell` and `leaving` are `503`. A client **MUST** treat `503` on
+these two routes as an **answer** rather than a transport failure — the node has
+replied to the question it was asked — and **MUST** refuse a `status` it does not
+know rather than mapping it onto the nearest one it does.
+
+`leaving` carries **no** `committed` field. A client that models this as one
+record with optional fields will offer a caller a commit position that is absent
+for a reason it cannot express; three variants with distinct field sets is the
+shape that matches.
+
+**The two routes are not synonyms, and a client MUST NOT implement one in terms
+of the other.** They answer identically on a well node. They diverge during a
+staged shutdown, where `/ready` reports `leaving` while `/health` still reports
+`ok` — and that window is the whole reason both exist. A supervisor reads
+*not ready* as **stop sending traffic here** and *not healthy* as **restart
+this**; a client that reports one for the other inverts an operational decision.
+
+**Escaping is real and must not be hand-parsed.** These strings carry arbitrary
+user input through JSON escaping — a namespace named with a quote arrives as
+`\"`. A reader that scans for the text between quotation marks returns a truncated
+string and reports success. Use a JSON parser.
+
 ---
 
 ## 6. What is deliberately **not** part of this protocol
@@ -836,6 +911,15 @@ tests passing, and only the byte-level comparison caught it.
   script by hand. That is a language question rather than a protocol one, and it
   does not affect a client — but a client author who tries to build one into a
   statement will find out the hard way, so it is stated here.
+- **`Content-Length` on every response constrains `GET /backup`.** Section 5.3
+  requires a declared length on every route, and the node satisfies it by
+  materialising the whole log — measured at a small store and again at a
+  non-trivial one. That is a real ceiling: a store whose log outgrows a
+  comfortable response would need either streaming, which this version forbids,
+  or a range facility, which it does not have. Whether `/backup` gains one is an
+  open product decision, and it is a **version** decision rather than a quiet
+  one, which is why clients are required to refuse unrecognised framing loudly.
+
 - **There is no geospatial predicate yet.** A geometry is a value the store
   carries; `INSIDE`, `INTERSECTS` and distance are not part of this version, and
   the access-path byte will gain no new value for them until they exist.

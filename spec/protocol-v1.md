@@ -271,7 +271,7 @@ u8      tag
 | tag | outcome | rest of the outcome |
 |---|---|---|
 | 0 | Done | nothing |
-| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) · `u32` note count · repeated: `text` kind, `text` message |
+| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) · `u32` note count · repeated: `text` kind, `text` message · `u8` only |
 | 2 | Value | names (3.9) · `bytes` value (§4) |
 | 3 | Keys | `u32` count · repeated `text` |
 | 4 | Removed | `u64` count of records a conditional delete removed |
@@ -333,6 +333,33 @@ group by the first and show the second, and a typed note would put the node's
 whole note vocabulary into every client's build for no gain. A client MUST NOT
 treat an unfamiliar kind as an error: kinds are added the same way outcome tags
 are.
+
+The kinds a node sends today are listed here so a client can group them
+deliberately rather than by string comparison against whatever it has seen. The
+list is **informative and open** — it is not a closed set, and a client that
+refuses an unlisted kind is non-conforming by the paragraph above.
+
+| kind | what the read is saying |
+|---|---|
+| `fell-back` | an index could have served this and did not; the read was a scan |
+| `approximate` | the answer may omit a record that belonged in it |
+| `compared-across-kinds` | a comparison held values of two different kinds |
+| `cursor-walked` | a paged read reached its anchor by walking rather than by seeking |
+| `subquery-ceiling` | an inner read hit its record ceiling, so the outer answer is built on a truncated one |
+
+**The `only` flag sits after the notes and is the newest field.** It is `1` when
+the statement wrote `ONLY` — an assertion by its author that at most one record
+answers — and a client SHOULD render such an answer as the record itself rather
+than as a list holding it.
+
+It follows the notes for the same reason the notes follow the records: a client
+that stops before it reads absent, and **absent MUST be read as `0`**. That is
+the truth about every read written by somebody who has never heard of the clause,
+and about every answer from a node built before it existed.
+
+A client that ignores the flag is conforming but will render every `ONLY` read as
+a one-element array with nothing to say it was asked for differently, so a client
+that offers the clause in its query surface SHOULD read it.
 
 **Record identities are text**, exactly as the store spells them — not a parsed
 structure. A client that wants to name a record writes that text into its next

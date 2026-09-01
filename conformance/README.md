@@ -38,24 +38,67 @@ wrong.
 
 ## Running it
 
-Point your client's test suite at `values-v1.json`.
+Point your client's test suite at this directory.
 
 The reference Rust client reads it from a sibling checkout by default, or from
-`TESSARI_PROTOCOL_CORPUS`:
+`TESSARI_PROTOCOL_CONFORMANCE`:
 
 ```sh
-TESSARI_PROTOCOL_CORPUS=/path/to/values-v1.json cargo test --test conformance
+TESSARI_PROTOCOL_CONFORMANCE=/path/to/conformance cargo test --test conformance
 ```
+
+The variable names the **directory** rather than one file, because there is now
+more than one corpus in it.
 
 **A missing corpus must fail, not skip.** A conformance suite that passes having
 found nothing to check reports coverage it does not have, and that is worse than
 having no suite — someone will read the green and believe it.
 
+## The second corpus: `queries-v1.json`
+
+`values-v1.json` is the value codec. `queries-v1.json` is the **query builder**,
+and it belongs to `../spec/query-builder-v1.md` rather than to the protocol
+document — §6 of the protocol puts the query language deliberately outside the
+protocol, and this corpus sits beside the value corpus rather than inside it.
+
+A case names a query in a language-neutral notation and states the text a builder
+must render it to, with the parameters it must bind:
+
+```json
+{
+  "name": "select-one-comparison",
+  "build": { "select": { "from": "memories",
+             "where": { "compare": { "field": "session", "op": "eq",
+                                     "value": { "string": "abc" } } } } },
+  "script": "SELECT * FROM memories WHERE session = $p0;",
+  "parameters": { "p0": { "string": "abc" } }
+}
+```
+
+Values use the same tagged notation as the value corpus, so a client reads both
+with one reader.
+
+Two case shapes differ from the value corpus:
+
+- a case carrying **`refused`** instead of `script` must be refused by the
+  builder, with the named reason, and never rendered;
+- a case carrying **`needs`** names statements that must be executed before it —
+  an `UPDATE` needs the record it changes. Offline rendering ignores them; a run
+  against a node does not.
+
+**Rendering agreement is the offline half only.** It says nothing about whether
+the node's parser accepts the text. §6 point 4 of the builder contract asks any
+client that can reach a node to execute every rendered case with its parameters
+bound, and that is the only check that reaches the parser.
+
 ## Regenerating
 
 ```sh
-python3 generate.py > values-v1.json   # rewrite it
-python3 generate.py --check            # exit 1 if the committed file differs
+python3 generate.py > values-v1.json            # rewrite the value corpus
+python3 generate.py --check                     # exit 1 if the committed file differs
+
+python3 generate_queries.py > queries-v1.json   # rewrite the query corpus
+python3 generate_queries.py --check             # exit 1 if the committed file differs
 ```
 
 `--check` is what stops the corpus and its generator from drifting apart, and it

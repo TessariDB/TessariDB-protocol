@@ -879,6 +879,13 @@ client author reimplements something no client ever sees.
   grammar the server's own parser accepts, and that is proven by round-tripping
   built queries through that parser — not by inspection.
 
+  That proof lives in the server's workspace, which no client may read, so a
+  builder's *rendering* is specified separately in
+  [`query-builder-v1.md`](query-builder-v1.md) and checked by
+  `conformance/queries-v1.json`. That document is language rather than protocol
+  and is excluded from this one for the reason this section exists; it is named
+  here so the exclusion does not read as an absence.
+
 ---
 
 ## 7. Conformance

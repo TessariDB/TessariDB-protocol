@@ -50,8 +50,11 @@ So the specification comes first and lives on its own:
 | path | what it is |
 |---|---|
 | `spec/protocol-v1.md` | the normative specification of protocol version 1.0 |
+| `spec/query-builder-v1.md` | the rendering contract for a query builder — **language, not protocol**, and separate for that reason (§6) |
 | `conformance/` | executable test vectors every client is checked against |
-| `conformance/README.md` | how to run the corpus against a client |
+| `conformance/values-v1.json` | the value codec, 54 vectors, both directions |
+| `conformance/queries-v1.json` | the query builder, 27 cases, rendering and refusals |
+| `conformance/README.md` | how to run both corpora against a client |
 
 ## The version, and what it promises
 
@@ -113,6 +116,9 @@ which is strong but is not the same claim.
 1. Read `spec/protocol-v1.md`. Do not read the server.
 2. Implement the value codec and the frame codec.
 3. Run `conformance/` against your implementation. Every vector, both directions.
+   If you also ship a query builder, read `spec/query-builder-v1.md` and run
+   `queries-v1.json` — and, where you can reach a node, execute every rendered
+   case against it, which is the only check that reaches the parser.
 4. Where the document did not answer a question you had, open an issue here. That
    is the contribution that matters most — it is how the document stops being
    sufficient only for the person who wrote it.

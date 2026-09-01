@@ -1,0 +1,649 @@
+{
+  "contract_major": 1,
+  "contract_minor": 0,
+  "what_this_is": "Rendering vectors for the query builder contract in spec/query-builder-v1.md. A conforming builder renders each case's `build` to exactly its `script` with exactly its `parameters`, and refuses each case carrying `refused`.",
+  "this_is_language_not_protocol": "Section 6 of protocol-v1.md puts the query language outside the protocol. This corpus sits beside the value corpus rather than inside it.",
+  "needs_run_first": "A case carrying `needs` names statements that must be executed before it, in order, for it to have anything to act on — an UPDATE needs the record it changes. Offline rendering ignores them; a node run does not.",
+  "run_it_against_a_node_too": "Rendering agreement is the offline half. Section 6 point 4 of the contract asks a client that can reach a node to execute every rendered case with its parameters bound: that is the only check that reaches the parser.",
+  "generated_by": "generate_queries.py",
+  "cases": [
+    {
+      "name": "select-everything",
+      "build": {
+        "select": {
+          "from": "memories"
+        }
+      },
+      "script": "SELECT * FROM memories;",
+      "parameters": {}
+    },
+    {
+      "name": "select-named-fields-in-the-order-named",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            "weight",
+            "body"
+          ]
+        }
+      },
+      "note": "A projection keeps call order — unlike an object body, which sorts (§4.8).",
+      "script": "SELECT weight, body FROM memories;",
+      "parameters": {}
+    },
+    {
+      "name": "select-one-comparison",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "session",
+              "op": "eq",
+              "value": {
+                "string": "abc"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE session = $p0;",
+      "parameters": {
+        "p0": {
+          "string": "abc"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-eq",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "eq",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight = $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-ne",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "ne",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight != $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-lt",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "lt",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight < $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-le",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "le",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight <= $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-gt",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "gt",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight > $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-comparison-ge",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "weight",
+              "op": "ge",
+              "value": {
+                "integer": "3"
+              }
+            }
+          }
+        }
+      },
+      "script": "SELECT * FROM memories WHERE weight >= $p0;",
+      "parameters": {
+        "p0": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "select-nested-and-or-is-fully-parenthesised",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "or": [
+              {
+                "and": [
+                  {
+                    "compare": {
+                      "field": "session",
+                      "op": "eq",
+                      "value": {
+                        "string": "abc"
+                      }
+                    }
+                  },
+                  {
+                    "compare": {
+                      "field": "weight",
+                      "op": "ge",
+                      "value": {
+                        "integer": "2"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "compare": {
+                  "field": "pinned",
+                  "op": "eq",
+                  "value": {
+                    "bool": true
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "note": "Parameters bind depth-first, left to right, so $p0 is the leftmost comparison.",
+      "script": "SELECT * FROM memories WHERE ((session = $p0 AND weight >= $p1) OR pinned = $p2);",
+      "parameters": {
+        "p0": {
+          "string": "abc"
+        },
+        "p1": {
+          "integer": "2"
+        },
+        "p2": {
+          "bool": true
+        }
+      }
+    },
+    {
+      "name": "select-ordering-writes-the-direction-out",
+      "build": {
+        "select": {
+          "from": "memories",
+          "order": [
+            [
+              "created",
+              "desc"
+            ],
+            [
+              "weight",
+              "asc"
+            ]
+          ]
+        }
+      },
+      "script": "SELECT * FROM memories ORDER BY created DESC, weight ASC;",
+      "parameters": {}
+    },
+    {
+      "name": "select-start-before-limit",
+      "build": {
+        "select": {
+          "from": "memories",
+          "start": 20,
+          "limit": 10
+        }
+      },
+      "script": "SELECT * FROM memories START 20 LIMIT 10;",
+      "parameters": {}
+    },
+    {
+      "name": "select-every-clause-at-once",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            "body",
+            "weight"
+          ],
+          "where": {
+            "compare": {
+              "field": "session",
+              "op": "eq",
+              "value": {
+                "string": "abc"
+              }
+            }
+          },
+          "order": [
+            [
+              "created",
+              "desc"
+            ]
+          ],
+          "start": 0,
+          "limit": 50
+        }
+      },
+      "script": "SELECT body, weight FROM memories WHERE session = $p0 ORDER BY created DESC START 0 LIMIT 50;",
+      "parameters": {
+        "p0": {
+          "string": "abc"
+        }
+      }
+    },
+    {
+      "name": "select-a-hostile-value-stays-a-value",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "body",
+              "op": "eq",
+              "value": {
+                "string": "'; DROP COLLECTION memories; --"
+              }
+            }
+          }
+        }
+      },
+      "note": "Protocol §7 clause 7: values travel through the codec, never through the text.",
+      "script": "SELECT * FROM memories WHERE body = $p0;",
+      "parameters": {
+        "p0": {
+          "string": "'; DROP COLLECTION memories; --"
+        }
+      }
+    },
+    {
+      "name": "create-a-record-the-caller-named",
+      "build": {
+        "create_record": {
+          "table": "memories",
+          "id": {
+            "string": "note-1"
+          },
+          "set": {
+            "weight": {
+              "integer": "3"
+            },
+            "body": {
+              "string": "metric units"
+            }
+          }
+        }
+      },
+      "note": "The identity binds first ($p0); the fields then bind in name order, so body precedes weight.",
+      "script": "CREATE memories:$p0 = { body: $p1, weight: $p2 };",
+      "parameters": {
+        "p0": {
+          "string": "note-1"
+        },
+        "p1": {
+          "string": "metric units"
+        },
+        "p2": {
+          "integer": "3"
+        }
+      }
+    },
+    {
+      "name": "create-a-record-the-store-names",
+      "build": {
+        "create_in_table": {
+          "table": "memories",
+          "set": {
+            "body": {
+              "string": "metric units"
+            }
+          }
+        }
+      },
+      "script": "CREATE memories = { body: $p0 };",
+      "parameters": {
+        "p0": {
+          "string": "metric units"
+        }
+      }
+    },
+    {
+      "name": "create-with-an-integer-identity",
+      "build": {
+        "create_record": {
+          "table": "memories",
+          "id": {
+            "integer": "7"
+          },
+          "set": {
+            "body": {
+              "string": "seven"
+            }
+          }
+        }
+      },
+      "script": "CREATE memories:$p0 = { body: $p1 };",
+      "parameters": {
+        "p0": {
+          "integer": "7"
+        },
+        "p1": {
+          "string": "seven"
+        }
+      }
+    },
+    {
+      "name": "update-sets-named-fields",
+      "build": {
+        "update_record": {
+          "table": "memories",
+          "id": {
+            "string": "note-1"
+          },
+          "set": {
+            "weight": {
+              "integer": "5"
+            },
+            "body": {
+              "string": "changed"
+            }
+          }
+        }
+      },
+      "needs": [
+        {
+          "build": {
+            "create_record": {
+              "table": "memories",
+              "id": {
+                "string": "note-1"
+              },
+              "set": {
+                "body": {
+                  "string": "as it was"
+                }
+              }
+            }
+          },
+          "script": "CREATE memories:$p0 = { body: $p1 };",
+          "parameters": {
+            "p0": {
+              "string": "note-1"
+            },
+            "p1": {
+              "string": "as it was"
+            }
+          }
+        }
+      ],
+      "script": "UPDATE memories:$p0 SET body = $p1, weight = $p2;",
+      "parameters": {
+        "p0": {
+          "string": "note-1"
+        },
+        "p1": {
+          "string": "changed"
+        },
+        "p2": {
+          "integer": "5"
+        }
+      }
+    },
+    {
+      "name": "delete-one-record",
+      "build": {
+        "delete_record": {
+          "table": "memories",
+          "id": {
+            "string": "note-1"
+          }
+        }
+      },
+      "needs": [
+        {
+          "build": {
+            "create_record": {
+              "table": "memories",
+              "id": {
+                "string": "note-1"
+              },
+              "set": {
+                "body": {
+                  "string": "as it was"
+                }
+              }
+            }
+          },
+          "script": "CREATE memories:$p0 = { body: $p1 };",
+          "parameters": {
+            "p0": {
+              "string": "note-1"
+            },
+            "p1": {
+              "string": "as it was"
+            }
+          }
+        }
+      ],
+      "script": "DELETE memories:$p0;",
+      "parameters": {
+        "p0": {
+          "string": "note-1"
+        }
+      }
+    },
+    {
+      "name": "a-table-that-is-not-a-name-is-refused",
+      "build": {
+        "select": {
+          "from": "memories; DROP COLLECTION memories; --"
+        }
+      },
+      "note": "Refused rather than quoted: quoting turns a mistake into a statement that means something else.",
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a table",
+        "name": "memories; DROP COLLECTION memories; --"
+      }
+    },
+    {
+      "name": "a-field-that-is-not-a-name-is-refused",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            "body-text"
+          ]
+        }
+      },
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a field",
+        "name": "body-text"
+      }
+    },
+    {
+      "name": "a-filter-field-that-is-not-a-name-is-refused",
+      "build": {
+        "select": {
+          "from": "memories",
+          "where": {
+            "compare": {
+              "field": "1st",
+              "op": "eq",
+              "value": {
+                "integer": "1"
+              }
+            }
+          }
+        }
+      },
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a field",
+        "name": "1st"
+      }
+    },
+    {
+      "name": "an-ordering-field-that-is-not-a-name-is-refused",
+      "build": {
+        "select": {
+          "from": "memories",
+          "order": [
+            [
+              "created at",
+              "asc"
+            ]
+          ]
+        }
+      },
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a field",
+        "name": "created at"
+      }
+    },
+    {
+      "name": "a-create-with-no-fields-is-refused",
+      "build": {
+        "create_record": {
+          "table": "memories",
+          "id": {
+            "string": "x"
+          },
+          "set": {}
+        }
+      },
+      "refused": {
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "a-create-in-a-table-with-no-fields-is-refused",
+      "build": {
+        "create_in_table": {
+          "table": "memories",
+          "set": {}
+        }
+      },
+      "refused": {
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "an-update-with-no-fields-is-refused",
+      "build": {
+        "update_record": {
+          "table": "memories",
+          "id": {
+            "string": "x"
+          },
+          "set": {}
+        }
+      },
+      "refused": {
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "a-delete-of-a-table-that-is-not-a-name-is-refused",
+      "build": {
+        "delete_record": {
+          "table": "1memories",
+          "id": {
+            "string": "x"
+          }
+        }
+      },
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a table",
+        "name": "1memories"
+      }
+    }
+  ]
+}

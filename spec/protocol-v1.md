@@ -900,6 +900,12 @@ tests will not show:
    (section 3.4), where a parameter is an encoded value and none of this arises,
    or interpolate nothing and send a plain-body script.
 
+Read clause 7 of section 7 with this section beside it. On the wire a parameter
+is an encoded value and rendering one to text is forbidden; here there is no slot
+for an encoded value, so rendering it is the only way to pass one. The clause
+says both, and a client implementing both transports **MUST NOT** let this route's
+requirement travel back to the other one.
+
 This is **not** a statement-injection hazard: the string is parsed as a value on
 its own, so a parameter cannot add a clause — the fourth row above is a string
 containing a quote, not an escape into the statement. It is a **type-confusion**
@@ -1099,8 +1105,14 @@ A conforming client:
    bound kind, and an unknown record-id discriminant — never guess.
 6. **MUST** apply the `i64` sign inversion (2.2) in the value layer and **MUST
    NOT** apply it in the frame layer.
-7. **MUST** carry parameter values through the value codec and **MUST NOT**
-   interpolate them into script text.
+7. **MUST** carry parameter values through the value codec on the wire protocol
+   (3.4), and **MUST NOT** interpolate them into script text there. `POST /script`
+   has no such channel: its parameters are JSON strings holding TessariQL source
+   (5.5), so a client offering a typed parameter API over that route renders each
+   value to source itself and owns the quoting. That is a property of the route,
+   not a licence — a client implementing both **MUST NOT** carry the
+   source-rendering habit back to the wire, where binding after parsing is the
+   whole point.
 8. **MUST** keep the ten error classes of 3.11 distinguishable to its caller, in
    particular `NoWritablePeer` and the `401` / `403` pair.
 9. **MUST** treat `Subscribe`'s `from` as inclusive and own the `+1` arithmetic.

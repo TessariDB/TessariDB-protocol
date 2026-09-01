@@ -61,11 +61,14 @@ is the divergence this contract exists to prevent.
 
 **A caller's value never reaches the statement text.** Every value becomes a
 bound parameter; the text carries the parameter's reference, and the value
-travels beside it in the value codec of §4 of the protocol document.
+travels beside it — as an encoded value on the wire protocol (§4 of the protocol
+document), or as a JSON string holding its TessariQL source on `POST /script`
+(§5.5 there). Which of the two is the transport's business. That the value is
+never formatted **into the statement** is this contract's, and it holds on both.
 
 This is not a builder convenience. It is clause 7 of the protocol's own
-conformance list: a client **MUST** carry parameter values through the value
-codec and **MUST NOT** interpolate them into script text.
+conformance list, which states the same split: the value codec on the wire, and
+rendered source on the HTTP route that has no slot for an encoded value.
 
 A builder that formatted values into the text would destroy the property the
 whole surface is designed around, and would do it invisibly, because the output

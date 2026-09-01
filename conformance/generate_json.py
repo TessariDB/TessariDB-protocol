@@ -315,10 +315,19 @@ def spell_outcome(outcome, names):
     if kind == "unknown":
         return {"kind": "unknown"}
     if kind == "keys":
-        # Record identities as strings, written the way §5.7 writes a `record`.
-        # An array of strings, never of objects — there is no value beside the
-        # identity, which is the point of the outcome.
-        return {"kind": "keys", "keys": [spell(key, names) for key in payload]}
+        # Record identities as strings: an array of strings, never of objects —
+        # there is no value beside the identity, which is the point of the
+        # outcome.
+        #
+        # The ID HALF ALONE, with no `table:` prefix. This read `spell(...)`,
+        # the reference form, until W55 exercised a running node: `KEYS FROM
+        # notes` answers `["42","42"]` and not `["notes:42", …]`, because the
+        # statement already named the table. A client written to the old corpus
+        # split on a colon that is never there.
+        return {
+            "kind": "keys",
+            "keys": [spell_record_id(key["record"]["id"]) for key in payload],
+        }
     if kind == "records":
         plan = payload["plan"]
         if "access" not in plan:
@@ -335,8 +344,18 @@ def spell_outcome(outcome, names):
             out["only"] = True
         # An element is a PAIR, not a value: a client that types this array as
         # the records reads one level too high.
+        #
+        # `id` is the ID HALF ALONE, for the same reason `keys` is: every row of
+        # one outcome comes from the table `plan.table` names, and the grammar
+        # has no two-table source to make that ambiguous. A record REFERENCE
+        # stored in a field keeps the qualified `table:id` form — measured on a
+        # running node in W55, where a row read back as
+        # `{"id":"9","value":{"by":"users:1"}}`.
         out["records"] = [
-            {"id": spell(row["id"], names), "value": spell(row["value"], names)}
+            {
+                "id": spell_record_id(row["id"]["record"]["id"]),
+                "value": spell(row["value"], names),
+            }
             for row in payload["rows"]
         ]
         return out

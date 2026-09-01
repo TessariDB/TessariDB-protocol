@@ -1050,9 +1050,22 @@ in 5.4. Five kinds exist: `fell-back`, `approximate`, `compared-across-kinds`,
 through to its caller rather than dropping it, because a note it does not know is
 still the store reporting that the answer is qualified.
 
-**`keys`** holds record identities as strings, each written the way §5.7 writes a
-`record`. It is an array of strings and never of objects; unlike `records`, there
-is no value beside the identity, which is the point of the outcome.
+**`keys`** holds record identities as strings. It is an array of strings and
+never of objects; unlike `records`, there is no value beside the identity, which
+is the point of the outcome.
+
+**Each string is the id half alone — there is no `table:` prefix and no colon.**
+`KEYS FROM notes` over a store holding two records answers
+`{"kind":"keys","keys":["42","42"]}`, not `["notes:42", …]`. The statement named
+the table, so the answer does not repeat it. This sentence previously said the
+keys were written *"the way §5.7 writes a `record`"*, which is the `table:id`
+form of §5.7.1 — a client implementing that literally splits on a colon that is
+never there.
+
+Within the id half the spelling and its consequences are exactly §5.7.1's: the
+integer `42` and the text `'42'` are **written identically**, and a client
+**MUST NOT** parse the string back into a typed record id. A caller that needs
+the type reads the identity from section 4, where it carries its tag.
 
 ### 5.7 `POST /script` — how a value is spelled
 

@@ -920,8 +920,8 @@
       "json": {
         "kind": "keys",
         "keys": [
-          "users:1",
-          "users:ada"
+          "1",
+          "ada"
         ]
       },
       "note": "Never of objects: there is no value beside the identity."
@@ -974,7 +974,7 @@
         },
         "records": [
           {
-            "id": "users:1",
+            "id": "1",
             "value": {
               "name": "ada"
             }
@@ -1087,7 +1087,7 @@
         "only": true,
         "records": [
           {
-            "id": "users:1",
+            "id": "1",
             "value": {
               "name": "ada"
             }

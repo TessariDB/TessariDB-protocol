@@ -184,11 +184,18 @@ Two readers of one document can both misread it the same way, and nothing here
 would notice. Until a corpus is checked against a running node it proves
 agreement between implementations rather than agreement with the database.
 
-**That check now exists for `json-v1.json`, and only for it.**
+**That check now exists for two of the three.**
 
 ```
-python3 verify_json_against_node.py --node 127.0.0.1:47901
+python3 verify_json_against_node.py   --node 127.0.0.1:47901   # the HTTP surface
+python3 verify_values_against_node.py --node 127.0.0.1:47901   # the wire protocol
 ```
+
+Start the node for the second one with `tessaridb --serve 127.0.0.1:47901`. The
+two harnesses are separate programs rather than one with a flag, because the §4
+value codec never appears on the HTTP surface at all: §5.5 says a `/script`
+parameter carries TessariQL **source**, so the bytes this corpus is about are
+only observable over §3.
 
 It writes each case's value as TessariQL, asks a node to render it, and compares
 the answer to the corpus structurally. First run, 2026-09-01: **47 verified,
@@ -205,8 +212,45 @@ insertion order, and §5.7.1 promises only that the order is deterministic. It i
 left standing rather than edited away — a corpus adjusted until it agrees with
 the engine is no longer evidence about the document.
 
-`values-v1.json` and `queries-v1.json` remain unverified against a node. The byte
-corpus needs the wire protocol rather than HTTP, which is a different harness.
+### The byte corpus against a node
+
+`verify_values_against_node.py` runs **two checks per case**, and the reason is
+the warning at the top of this file: a round trip alone passes even when a
+decoder and an encoder are wrong in the same way.
+
+| check | what is sent | what it puts on trial |
+|---|---|---|
+| `encode` | `RETURN <literal>;` — source, no parameter | the node's **encoder alone**, against bytes `generate.py` derived from the document |
+| `roundtrip` | `RETURN $p0;` with `p0` carrying the corpus bytes | the decoder and encoder together |
+
+`encode` is the one that cannot be satisfied by symmetric wrongness, because its
+expectation never saw the node. `roundtrip` is kept because it reaches cases
+`encode` cannot — a value with no literal still has bytes.
+
+First run, 2026-09-01:
+
+```
+units: source=54 | encode-ok=38 | encode-MISMATCH=2 | encode-unreachable=14
+                 | roundtrip-ok=53 | roundtrip-MISMATCH=1
+```
+
+Both disagreements are **negative zero**, and they are left standing.
+
+- `float-negative-zero` fails both checks. §5.7.1 states that a float is
+  normalised when the value is built and that a client "MUST NOT expect the sign
+  of a zero to survive, here or on the wire" — so the node is following the
+  document, and this vector, written from §4.3, contradicts a normative MUST NOT
+  in another section. The document has to say one thing before the corpus can be
+  regenerated (`Q-PROTO-9`).
+- `geometry-point-negative-zero` fails `encode` and **passes `roundtrip`**, which
+  is the more interesting half. §4.6 says `0.0` and `-0.0` are *different*
+  coordinates, and the codec honours that in both directions — the byte pattern
+  survives a parameter round trip exactly. What no source can do is *produce*
+  one: `coordinates: [-0.0, 0.0]` yields `+0.0`. A distinction the document
+  states deliberately is unreachable from the language (`Q-PROTO-10`).
+
+`queries-v1.json` remains unverified against a node; it needs statements executed
+in order rather than values rendered.
 
 ## Coverage
 

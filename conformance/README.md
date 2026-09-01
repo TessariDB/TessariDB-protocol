@@ -75,8 +75,13 @@ must render it to, with the parameters it must bind:
 }
 ```
 
-Values use the same tagged notation as the value corpus, so a client reads both
-with one reader.
+Values use the same tagged notation as the value corpus. The **scalar** spellings
+are shared across all three corpora and a client reads them with one reader —
+this corpus's parameters are strings, integers and one bool, and none of them
+reach the two places where the notation is not in fact common. Those two are
+between `values-v1.json` and `json-v1.json`, they are named below under that
+corpus, and a client that assumed one reader for everything would fail on
+exactly them (`Q-PROTO-11`).
 
 Two case shapes differ from the value corpus:
 
@@ -114,7 +119,23 @@ client sends is a value from the §5.7 table. It is weaker than the value corpus
 by construction and says so rather than letting the stronger requirement be
 assumed.
 
-Three things differ from the other two corpora:
+**Two of its value spellings are not the value corpus's**, and a client reading
+both with one reader meets them:
+
+| | `values-v1.json` | `json-v1.json` |
+|---|---|---|
+| an unbounded range bound | the bare string `"unbounded"` | the object `{"unbounded": null}` |
+| a polygon | `{exterior, interiors}` | its rings as a bare list |
+| geometry shapes named | also `multipoint`, `multiline`, `multipolygon` | `point`, `line`, `polygon`, `collection` |
+
+Neither is a decision anyone took — each generator was written for its own
+section and nothing compared them until a harness had to read both. It is
+recorded as `Q-PROTO-11` rather than fixed here, because either fix regenerates a
+**published** vector; `verify_json_against_node.py` carries a one-direction
+`as_codec_model()` to translate the bound spelling, and that is a stopgap while
+the question is open rather than the answer to it.
+
+Three further things differ from the other two corpora:
 
 - **`json` is a JSON value, not JSON text.** Neither §5.6 nor §5.7 makes key
   order or whitespace normative, so a client parses its own output and compares

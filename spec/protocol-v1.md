@@ -23,14 +23,6 @@ predecessors no client author will ever have seen.
 So the count starts where the audience starts. Section 2.3 states the policy the
 version now follows.
 
-> **Ahead of the implementations, as of this revision.** This document is
-> upstream of the node and the clients: a layout is decided here first. Three
-> things it now specifies are not yet built — the six-byte greeting (3.1), the
-> length in front of every outcome (3.5), and the two new value types
-> `0x10` / `0x11` in a client (4.1). The node already encodes the two types. This
-> note is deleted when the last of them lands, and its presence means the gap is
-> known rather than unnoticed.
-
 ---
 
 ## 1. Two transports, and which carries what

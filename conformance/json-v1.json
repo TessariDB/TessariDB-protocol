@@ -1,0 +1,812 @@
+{
+  "protocol_major": 1,
+  "protocol_minor": 0,
+  "what_this_is": "JSON-rendering vectors for sections 5.6 and 5.7 of spec/protocol-v1.md. A conforming client, given the answer JSON, MUST read each `json` back to the stated `value`, and given an outcome object MUST read it as the stated outcome. A case carrying `omitted` states that the value's encoding is the ABSENCE of its key, which is what keeps `none` and `null` apart.",
+  "this_one_is_decode_only": "values-v1.json requires both directions and explains why one is not enough. Here there is only one direction. A client never encodes a JSON value on this surface: a POST /script parameter carries TessariQL source rather than JSON (5.5), so nothing a client sends is a value from the 5.7 table. This corpus is weaker than the value corpus by construction, and says so rather than letting the stronger requirement be assumed.",
+  "structural_comparison_not_textual": "`json` is a JSON VALUE, not JSON text. Neither 5.6 nor 5.7 makes key order or whitespace normative, so a client parses its own output and compares structurally. Comparing rendered text would fail a conforming client for a property the document does not state.",
+  "names": {
+    "3": "users",
+    "7": "memories"
+  },
+  "names_note": "The names block of 3.9, as a map from table id to name. A table or record reference whose id is absent from it is unresolvable, and is written in the bracketed form of 5.7 rather than guessed.",
+  "gaps_are_the_point": "`gaps` lists what this document does not say precisely enough to render. They are recorded rather than filled in from the server's behaviour: LR-PROTO-004 asks a corpus written from the document alone to disagree where the document is unclear, and a case invented to remove a gap would destroy the only property this file has.",
+  "generated_by": "conformance/generate_json.py, a second implementation written from spec/protocol-v1.md alone",
+  "not_yet_verified_against": "a running node",
+  "cases": [
+    {
+      "name": "none-is-omitted",
+      "value": {
+        "none": null
+      },
+      "omitted": true,
+      "note": "Absence is the encoding. Not the same as null."
+    },
+    {
+      "name": "null-is-written",
+      "value": {
+        "null": null
+      },
+      "json": null,
+      "note": "A present field holding nothing."
+    },
+    {
+      "name": "bool-true",
+      "value": {
+        "bool": true
+      },
+      "json": true
+    },
+    {
+      "name": "bool-false",
+      "value": {
+        "bool": false
+      },
+      "json": false
+    },
+    {
+      "name": "integer-small",
+      "value": {
+        "integer": "42"
+      },
+      "json": 42,
+      "note": "Exact in every JSON parser."
+    },
+    {
+      "name": "integer-beyond-double",
+      "value": {
+        "integer": "9223372036854775807"
+      },
+      "json": 9223372036854775807,
+      "note": "Exact in this document and NOT in a parser that reads every number as a double. A client whose JSON reader loses this should fail here."
+    },
+    {
+      "name": "decimal-is-a-string",
+      "value": {
+        "decimal": {
+          "mantissa": "1234",
+          "scale": 2
+        }
+      },
+      "json": "12.34",
+      "note": "A JSON number is a double; dec exists so money is not."
+    },
+    {
+      "name": "decimal-negative",
+      "value": {
+        "decimal": {
+          "mantissa": "-1234",
+          "scale": 2
+        }
+      },
+      "json": "-12.34"
+    },
+    {
+      "name": "decimal-scale-zero",
+      "value": {
+        "decimal": {
+          "mantissa": "500",
+          "scale": 0
+        }
+      },
+      "json": "500"
+    },
+    {
+      "name": "decimal-leading-zero",
+      "value": {
+        "decimal": {
+          "mantissa": "7",
+          "scale": 3
+        }
+      },
+      "json": "0.007",
+      "note": "Scale wider than the mantissa."
+    },
+    {
+      "name": "float-one-and-a-half",
+      "value": {
+        "float_bits": "3ff8000000000000"
+      },
+      "json": 1.5,
+      "note": "Exactly representable, so the number is safe."
+    },
+    {
+      "name": "float-infinity",
+      "value": {
+        "float_bits": "7ff0000000000000"
+      },
+      "json": "inf",
+      "note": "Quoted: JSON has no spelling for it."
+    },
+    {
+      "name": "float-negative-infinity",
+      "value": {
+        "float_bits": "fff0000000000000"
+      },
+      "json": "-inf"
+    },
+    {
+      "name": "float-nan",
+      "value": {
+        "float_bits": "7ff8000000000000"
+      },
+      "json": "NaN",
+      "note": "Quoted for the same reason."
+    },
+    {
+      "name": "string-plain",
+      "value": {
+        "string": "hello"
+      },
+      "json": "hello"
+    },
+    {
+      "name": "string-unicode",
+      "value": {
+        "string": "héllo"
+      },
+      "json": "héllo",
+      "note": "A length in bytes, not characters."
+    },
+    {
+      "name": "string-with-quote-and-backslash",
+      "value": {
+        "string": "a\"b\\c"
+      },
+      "json": "a\"b\\c",
+      "note": "JSON escaping, not TessariQL's."
+    },
+    {
+      "name": "bytes-lowercase-hex",
+      "value": {
+        "bytes": "00ff10"
+      },
+      "json": "00ff10",
+      "note": "No prefix, no separators."
+    },
+    {
+      "name": "bytes-empty",
+      "value": {
+        "bytes": ""
+      },
+      "json": ""
+    },
+    {
+      "name": "duration-the-documents-own-example",
+      "value": {
+        "duration": {
+          "seconds": "5400",
+          "nanos": 0
+        }
+      },
+      "json": "1h30m",
+      "note": "1h30m — the one rendering §5.7 shows."
+    },
+    {
+      "name": "duration-seconds-only",
+      "value": {
+        "duration": {
+          "seconds": "45",
+          "nanos": 0
+        }
+      },
+      "json": "45s"
+    },
+    {
+      "name": "datetime-epoch",
+      "value": {
+        "datetime": {
+          "seconds": "0",
+          "nanos": 0
+        }
+      },
+      "json": "1970-01-01T00:00:00Z",
+      "note": "RFC 3339, UTC."
+    },
+    {
+      "name": "datetime-a-real-instant",
+      "value": {
+        "datetime": {
+          "seconds": "1756700000",
+          "nanos": 0
+        }
+      },
+      "json": "2025-09-01T04:13:20Z"
+    },
+    {
+      "name": "uuid-hyphenated-lowercase",
+      "value": {
+        "uuid": "0102030405060708090a0b0c0d0e0f10"
+      },
+      "json": "01020304-0506-0708-090a-0b0c0d0e0f10"
+    },
+    {
+      "name": "table-resolved-to-its-name",
+      "value": {
+        "table": 7
+      },
+      "json": "memories"
+    },
+    {
+      "name": "table-unresolvable-is-visibly-not-a-name",
+      "value": {
+        "table": 99
+      },
+      "json": "<table 99>",
+      "note": "The brackets are the point."
+    },
+    {
+      "name": "record-integer-id",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "int": "7"
+          }
+        }
+      },
+      "json": "users:7"
+    },
+    {
+      "name": "record-name-id",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "text": "alice"
+          }
+        }
+      },
+      "json": "users:alice"
+    },
+    {
+      "name": "array-of-mixed",
+      "value": {
+        "array": [
+          {
+            "integer": "1"
+          },
+          {
+            "string": "two"
+          },
+          {
+            "null": null
+          }
+        ]
+      },
+      "json": [
+        1,
+        "two",
+        null
+      ],
+      "note": "Elements recurse through the same table."
+    },
+    {
+      "name": "array-empty",
+      "value": {
+        "array": []
+      },
+      "json": []
+    },
+    {
+      "name": "set-arrives-as-an-array",
+      "value": {
+        "set": [
+          {
+            "bool": true
+          },
+          {
+            "bool": false
+          }
+        ]
+      },
+      "json": [
+        true,
+        false
+      ],
+      "note": "The collection type is not recoverable."
+    },
+    {
+      "name": "object-omits-a-none-field",
+      "value": {
+        "object": {
+          "present": {
+            "integer": "1"
+          },
+          "absent": {
+            "none": null
+          },
+          "explicit": {
+            "null": null
+          }
+        }
+      },
+      "json": {
+        "present": 1,
+        "explicit": null
+      },
+      "note": "The rule that makes none and null distinguishable in an object."
+    },
+    {
+      "name": "object-empty",
+      "value": {
+        "object": {}
+      },
+      "json": {}
+    },
+    {
+      "name": "object-nested",
+      "value": {
+        "object": {
+          "inner": {
+            "object": {
+              "deep": {
+                "bool": true
+              }
+            }
+          }
+        }
+      },
+      "json": {
+        "inner": {
+          "deep": true
+        }
+      }
+    },
+    {
+      "name": "range-included-to-excluded",
+      "value": {
+        "range": {
+          "start": {
+            "included": {
+              "integer": "1"
+            }
+          },
+          "end": {
+            "excluded": {
+              "integer": "5"
+            }
+          }
+        }
+      },
+      "json": {
+        "start": {
+          "bound": "included",
+          "value": 1
+        },
+        "end": {
+          "bound": "excluded",
+          "value": 5
+        }
+      }
+    },
+    {
+      "name": "range-unbounded-end-carries-no-value-key",
+      "value": {
+        "range": {
+          "start": {
+            "included": {
+              "integer": "1"
+            }
+          },
+          "end": {
+            "unbounded": null
+          }
+        }
+      },
+      "json": {
+        "start": {
+          "bound": "included",
+          "value": 1
+        },
+        "end": {
+          "bound": "unbounded"
+        }
+      },
+      "note": "1.. is not 1..null. The key's absence is what keeps them apart."
+    },
+    {
+      "name": "range-both-unbounded",
+      "value": {
+        "range": {
+          "start": {
+            "unbounded": null
+          },
+          "end": {
+            "unbounded": null
+          }
+        }
+      },
+      "json": {
+        "start": {
+          "bound": "unbounded"
+        },
+        "end": {
+          "bound": "unbounded"
+        }
+      }
+    },
+    {
+      "name": "range-decimal-endpoint-is-quoted",
+      "value": {
+        "range": {
+          "start": {
+            "included": {
+              "decimal": {
+                "mantissa": "150",
+                "scale": 2
+              }
+            }
+          },
+          "end": {
+            "excluded": {
+              "decimal": {
+                "mantissa": "250",
+                "scale": 2
+              }
+            }
+          }
+        }
+      },
+      "json": {
+        "start": {
+          "bound": "included",
+          "value": "1.50"
+        },
+        "end": {
+          "bound": "excluded",
+          "value": "2.50"
+        }
+      },
+      "note": "Each endpoint is written by the same table, so it is lossy the same way."
+    },
+    {
+      "name": "geometry-point-longitude-first",
+      "value": {
+        "geometry": {
+          "point": {
+            "lon": "4002d14e3bcd35a8",
+            "lat": "40486da5119ce076"
+          }
+        }
+      },
+      "json": {
+        "type": "Point",
+        "coordinates": [
+          2.3522,
+          48.8566
+        ]
+      },
+      "note": "The silent geospatial bug: swapping these produces a valid document."
+    },
+    {
+      "name": "geometry-point-non-finite-coordinate-is-null",
+      "value": {
+        "geometry": {
+          "point": {
+            "lon": "7ff8000000000000",
+            "lat": "40486da5119ce076"
+          }
+        }
+      },
+      "json": {
+        "type": "Point",
+        "coordinates": [
+          null,
+          48.8566
+        ]
+      },
+      "note": "Cannot arise from a well-formed shape; can arise from bytes."
+    },
+    {
+      "name": "geometry-polygon-with-a-hole",
+      "value": {
+        "geometry": {
+          "polygon": [
+            [
+              {
+                "lon": "0000000000000000",
+                "lat": "0000000000000000"
+              },
+              {
+                "lon": "4024000000000000",
+                "lat": "0000000000000000"
+              },
+              {
+                "lon": "4024000000000000",
+                "lat": "4024000000000000"
+              },
+              {
+                "lon": "0000000000000000",
+                "lat": "0000000000000000"
+              }
+            ],
+            [
+              {
+                "lon": "3ff0000000000000",
+                "lat": "3ff0000000000000"
+              },
+              {
+                "lon": "4000000000000000",
+                "lat": "3ff0000000000000"
+              },
+              {
+                "lon": "4000000000000000",
+                "lat": "4000000000000000"
+              },
+              {
+                "lon": "3ff0000000000000",
+                "lat": "3ff0000000000000"
+              }
+            ]
+          ]
+        }
+      },
+      "json": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              10.0,
+              0.0
+            ],
+            [
+              10.0,
+              10.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              1.0,
+              1.0
+            ],
+            [
+              2.0,
+              1.0
+            ],
+            [
+              2.0,
+              2.0
+            ],
+            [
+              1.0,
+              1.0
+            ]
+          ]
+        ]
+      },
+      "note": "An interior ring, skipped by a decoder that assumes there are none."
+    },
+    {
+      "name": "geometry-collection-nested",
+      "value": {
+        "geometry": {
+          "collection": [
+            {
+              "point": {
+                "lon": "3ff0000000000000",
+                "lat": "4000000000000000"
+              }
+            },
+            {
+              "line": [
+                {
+                  "lon": "0000000000000000",
+                  "lat": "0000000000000000"
+                },
+                {
+                  "lon": "3ff0000000000000",
+                  "lat": "3ff0000000000000"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "json": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "Point",
+            "coordinates": [
+              1.0,
+              2.0
+            ]
+          },
+          {
+            "type": "LineString",
+            "coordinates": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                1.0,
+                1.0
+              ]
+            ]
+          }
+        ]
+      },
+      "note": "A member is a whole geometry, not a bare shape."
+    },
+    {
+      "name": "geometry-line-empty",
+      "value": {
+        "geometry": {
+          "line": []
+        }
+      },
+      "json": {
+        "type": "LineString",
+        "coordinates": []
+      },
+      "note": "Permitted by the codec; a decoder must not refuse it."
+    },
+    {
+      "name": "regex-is-carried-not-compiled",
+      "value": {
+        "regex": "^a.*z$"
+      },
+      "json": "^a.*z$",
+      "note": "A client MUST NOT compile it."
+    },
+    {
+      "name": "regex-with-a-backslash",
+      "value": {
+        "regex": "\\d+\\s"
+      },
+      "json": "\\d+\\s"
+    }
+  ],
+  "outcomes": [
+    {
+      "name": "outcome-done",
+      "outcome": {
+        "done": null
+      },
+      "json": {
+        "kind": "done"
+      },
+      "note": "A statement with nothing to report."
+    },
+    {
+      "name": "outcome-value",
+      "outcome": {
+        "value": {
+          "integer": "4"
+        }
+      },
+      "json": {
+        "kind": "value",
+        "value": 4
+      }
+    },
+    {
+      "name": "outcome-value-none-has-no-value-key",
+      "outcome": {
+        "value": {
+          "none": null
+        }
+      },
+      "json": {
+        "kind": "value"
+      },
+      "note": "NOT the same as {\"kind\":\"value\",\"value\":null}. The language's none."
+    },
+    {
+      "name": "outcome-value-null-has-one",
+      "outcome": {
+        "value": {
+          "null": null
+        }
+      },
+      "json": {
+        "kind": "value",
+        "value": null
+      },
+      "note": "A stored null. JSON has one word for both; the key's presence separates them."
+    },
+    {
+      "name": "outcome-removed",
+      "outcome": {
+        "removed": 12043
+      },
+      "json": {
+        "kind": "removed",
+        "count": 12043
+      },
+      "note": "The count a conditional delete removed."
+    },
+    {
+      "name": "outcome-removed-zero",
+      "outcome": {
+        "removed": 0
+      },
+      "json": {
+        "kind": "removed",
+        "count": 0
+      },
+      "note": "Nothing matched — still a count, not `done`."
+    },
+    {
+      "name": "outcome-unknown",
+      "outcome": {
+        "unknown": null
+      },
+      "json": {
+        "kind": "unknown"
+      },
+      "note": "A kind this build has never seen. A client MUST expose it and MUST NOT stop reading the list at it — it is not an outcome carrying nothing."
+    }
+  ],
+  "gaps": [
+    {
+      "case": "float-negative-zero",
+      "unit": "value",
+      "silence": "§5.7 does not say how negative zero is written"
+    },
+    {
+      "case": "datetime-with-nanoseconds",
+      "unit": "value",
+      "silence": "§5.7 says RFC 3339 and fixes no sub-second precision"
+    },
+    {
+      "case": "duration-zero",
+      "unit": "value",
+      "silence": "§5.7 does not say how a zero duration is written"
+    },
+    {
+      "case": "duration-negative",
+      "unit": "value",
+      "silence": "§5.7 gives one duration example and no rendering rule"
+    },
+    {
+      "case": "duration-sub-second",
+      "unit": "value",
+      "silence": "§5.7 gives one duration example and no rendering rule"
+    },
+    {
+      "case": "record-uuid-id",
+      "unit": "value",
+      "silence": "§5.7 does not spell a uuid record id inside \"table:id\""
+    },
+    {
+      "case": "record-bytes-id",
+      "unit": "value",
+      "silence": "§5.7 does not spell a bytes record id inside \"table:id\""
+    },
+    {
+      "case": "record-text-id-needing-quotes",
+      "unit": "value",
+      "silence": "§5.7 does not spell a text record id inside \"table:id\""
+    },
+    {
+      "case": "record-unresolvable-table",
+      "unit": "value",
+      "silence": "§5.7 writes `\"<record …>\"` with the ellipsis unresolved"
+    },
+    {
+      "case": "outcome-keys",
+      "unit": "outcome",
+      "silence": "§5.6 does not state what a key's string form is"
+    },
+    {
+      "case": "outcome-records",
+      "unit": "outcome",
+      "silence": "§5.6 states neither the set of `path` words nor the shape of `plan`"
+    },
+    {
+      "case": "set-element-order",
+      "unit": "value",
+      "silence": "§5.7 does not state whether a set's array order is defined"
+    }
+  ]
+}

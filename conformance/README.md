@@ -91,6 +91,55 @@ the node's parser accepts the text. §6 point 4 of the builder contract asks any
 client that can reach a node to execute every rendered case with its parameters
 bound, and that is the only check that reaches the parser.
 
+## The third corpus: `json-v1.json`
+
+`values-v1.json` is the binary codec of §4. `json-v1.json` is the **JSON
+rendering** of §5.6 and §5.7 — the outcome objects and the value spellings a
+`POST /script` answer carries. A case states a value in the same tagged notation
+and the JSON the surface writes for it:
+
+```json
+{
+  "name": "decimal-is-a-string",
+  "value": { "decimal": { "mantissa": "1234", "scale": 2 } },
+  "json": "12.34"
+}
+```
+
+**This one is decode-only, and that is a property rather than an oversight.**
+Everything above insists a corpus runs in both directions. Here there is only
+one: a client never *encodes* a JSON value on this surface, because a `/script`
+parameter carries **TessariQL source** rather than JSON (§5.5), so nothing a
+client sends is a value from the §5.7 table. It is weaker than the value corpus
+by construction and says so rather than letting the stronger requirement be
+assumed.
+
+Three things differ from the other two corpora:
+
+- **`json` is a JSON value, not JSON text.** Neither §5.6 nor §5.7 makes key
+  order or whitespace normative, so a client parses its own output and compares
+  structurally. A textual comparison would fail a conforming client for a
+  property the document does not state.
+- A case carrying **`omitted`** instead of `json` states that the value's encoding
+  is the **absence** of its key. That is `none`, and it is what keeps `none` and
+  `null` apart in a format with one word for both.
+- The file has a **`gaps`** list, and it is the most useful thing in it.
+
+### `gaps` — where the document does not say enough
+
+Twelve entries, produced by writing an implementation from §5.6 and §5.7 alone
+and recording every place it could not proceed: how a negative zero, a
+sub-second or negative duration, or a sub-second datetime is written; how a
+uuid, bytes, or quote-needing text record id is spelled inside `"table:id"`;
+what stands in for the ellipsis in `"<record …>"`; whether a set's array order is
+defined; and the two outcome kinds — `keys` and `records` — whose contents §5.6
+names without specifying.
+
+They are recorded, never filled in from the server's behaviour. A corpus written
+from the document is only worth having because it **disagrees** where the
+document is unclear, and a case invented to remove a gap would destroy the one
+property the file has.
+
 ## Regenerating
 
 ```sh
@@ -99,6 +148,9 @@ python3 generate.py --check                     # exit 1 if the committed file d
 
 python3 generate_queries.py > queries-v1.json   # rewrite the query corpus
 python3 generate_queries.py --check             # exit 1 if the committed file differs
+
+python3 generate_json.py > json-v1.json         # rewrite the JSON-rendering corpus
+python3 generate_json.py --check                # exit 1 if the committed file differs
 ```
 
 `--check` is what stops the corpus and its generator from drifting apart, and it

@@ -745,6 +745,227 @@
         "kind": "unknown"
       },
       "note": "A kind this build has never seen. A client MUST expose it and MUST NOT stop reading the list at it — it is not an outcome carrying nothing."
+    },
+    {
+      "name": "outcome-keys-is-an-array-of-strings",
+      "outcome": {
+        "keys": [
+          {
+            "record": {
+              "table": 3,
+              "id": {
+                "int": "1"
+              }
+            }
+          },
+          {
+            "record": {
+              "table": 3,
+              "id": {
+                "text": "ada"
+              }
+            }
+          }
+        ]
+      },
+      "json": {
+        "kind": "keys",
+        "keys": [
+          "users:1",
+          "users:ada"
+        ]
+      },
+      "note": "Never of objects: there is no value beside the identity."
+    },
+    {
+      "name": "outcome-keys-empty",
+      "outcome": {
+        "keys": []
+      },
+      "json": {
+        "kind": "keys",
+        "keys": []
+      }
+    },
+    {
+      "name": "outcome-records-element-is-a-pair",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "record",
+            "table": "users"
+          },
+          "rows": [
+            {
+              "id": {
+                "record": {
+                  "table": 3,
+                  "id": {
+                    "int": "1"
+                  }
+                }
+              },
+              "value": {
+                "object": {
+                  "name": {
+                    "string": "ada"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "record",
+        "plan": {
+          "access": "record",
+          "table": "users"
+        },
+        "records": [
+          {
+            "id": "users:1",
+            "value": {
+              "name": "ada"
+            }
+          }
+        ]
+      },
+      "note": "A client that types this array as the records reads `name` one level too high."
+    },
+    {
+      "name": "outcome-records-nothing-to-report",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "scan",
+            "table": "users",
+            "cells": 40
+          },
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "scan",
+        "plan": {
+          "access": "scan",
+          "table": "users",
+          "cells": 40
+        },
+        "records": []
+      },
+      "note": "No notes and not ONLY, so neither key appears — byte-identical to what this response was before either clause existed."
+    },
+    {
+      "name": "outcome-records-with-a-note",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "scan",
+            "table": "users",
+            "cells": 40
+          },
+          "notes": [
+            {
+              "kind": "fell-back",
+              "message": "the index path could not fill the bound, so the read took the scan path instead"
+            }
+          ],
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "scan",
+        "plan": {
+          "access": "scan",
+          "table": "users",
+          "cells": 40
+        },
+        "notes": [
+          {
+            "kind": "fell-back",
+            "message": "the index path could not fill the bound, so the read took the scan path instead"
+          }
+        ],
+        "records": []
+      },
+      "note": "`kind` may be grouped on; `message` is for a person and MUST NOT be branched on."
+    },
+    {
+      "name": "outcome-records-only",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "index",
+            "table": "users",
+            "index": "by_name",
+            "shape": "point"
+          },
+          "only": true,
+          "rows": [
+            {
+              "id": {
+                "record": {
+                  "table": 3,
+                  "id": {
+                    "int": "1"
+                  }
+                }
+              },
+              "value": {
+                "object": {
+                  "name": {
+                    "string": "ada"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "index",
+        "plan": {
+          "access": "index",
+          "table": "users",
+          "index": "by_name",
+          "shape": "point"
+        },
+        "only": true,
+        "records": [
+          {
+            "id": "users:1",
+            "value": {
+              "name": "ada"
+            }
+          }
+        ]
+      },
+      "note": "`records` stays an array holding at most one — the key's type does not change."
+    },
+    {
+      "name": "outcome-records-plan-omits-what-it-does-not-know",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "scan"
+          },
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "scan",
+        "plan": {
+          "access": "scan"
+        },
+        "records": []
+      },
+      "note": "A scan's plan is the keys it knows, not eight of which six say nothing."
     }
   ],
   "gaps": [
@@ -792,16 +1013,6 @@
       "case": "record-unresolvable-table",
       "unit": "value",
       "silence": "§5.7 writes `\"<record …>\"` with the ellipsis unresolved"
-    },
-    {
-      "case": "outcome-keys",
-      "unit": "outcome",
-      "silence": "§5.6 does not state what a key's string form is"
-    },
-    {
-      "case": "outcome-records",
-      "unit": "outcome",
-      "silence": "§5.6 states neither the set of `path` words nor the shape of `plan`"
     },
     {
       "case": "set-element-order",

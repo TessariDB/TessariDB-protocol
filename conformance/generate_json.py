@@ -293,11 +293,31 @@ def spell_outcome(outcome, names):
     if kind == "unknown":
         return {"kind": "unknown"}
     if kind == "keys":
-        raise Silence("§5.6 does not state what a key's string form is")
+        # Record identities as strings, written the way §5.7 writes a `record`.
+        # An array of strings, never of objects — there is no value beside the
+        # identity, which is the point of the outcome.
+        return {"kind": "keys", "keys": [spell(key, names) for key in payload]}
     if kind == "records":
-        raise Silence(
-            "§5.6 states neither the set of `path` words nor the shape of `plan`"
-        )
+        plan = payload["plan"]
+        if "access" not in plan:
+            raise Silence("§5.6 requires `access` in every plan")
+        out = {"kind": "records", "path": plan["access"], "plan": dict(plan)}
+        # Written only when non-empty / only when true, so a response with
+        # nothing to report is identical to what it was before either existed.
+        if payload.get("notes"):
+            out["notes"] = [
+                {"kind": note["kind"], "message": note["message"]}
+                for note in payload["notes"]
+            ]
+        if payload.get("only"):
+            out["only"] = True
+        # An element is a PAIR, not a value: a client that types this array as
+        # the records reads one level too high.
+        out["records"] = [
+            {"id": spell(row["id"], names), "value": spell(row["value"], names)}
+            for row in payload["rows"]
+        ]
+        return out
     raise Silence(f"§5.6 has no object for outcome kind {kind}")
 
 
@@ -434,6 +454,58 @@ OUTCOME_CASES = [
         "stop reading the list at it — it is not an outcome carrying nothing.",
         {"unknown": None},
     ),
+    (
+        "outcome-keys-is-an-array-of-strings",
+        "Never of objects: there is no value beside the identity.",
+        {"keys": [
+            {"record": {"table": 3, "id": {"int": "1"}}},
+            {"record": {"table": 3, "id": {"text": "ada"}}},
+        ]},
+    ),
+    ("outcome-keys-empty", None, {"keys": []}),
+    (
+        "outcome-records-element-is-a-pair",
+        "A client that types this array as the records reads `name` one level too high.",
+        {"records": {
+            "plan": {"access": "record", "table": "users"},
+            "rows": [{"id": {"record": {"table": 3, "id": {"int": "1"}}},
+                      "value": {"object": {"name": {"string": "ada"}}}}],
+        }},
+    ),
+    (
+        "outcome-records-nothing-to-report",
+        "No notes and not ONLY, so neither key appears — byte-identical to what "
+        "this response was before either clause existed.",
+        {"records": {
+            "plan": {"access": "scan", "table": "users", "cells": 40},
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-with-a-note",
+        "`kind` may be grouped on; `message` is for a person and MUST NOT be branched on.",
+        {"records": {
+            "plan": {"access": "scan", "table": "users", "cells": 40},
+            "notes": [{"kind": "fell-back",
+                       "message": "the index path could not fill the bound, so the read took the scan path instead"}],
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-only",
+        "`records` stays an array holding at most one — the key's type does not change.",
+        {"records": {
+            "plan": {"access": "index", "table": "users", "index": "by_name", "shape": "point"},
+            "only": True,
+            "rows": [{"id": {"record": {"table": 3, "id": {"int": "1"}}},
+                      "value": {"object": {"name": {"string": "ada"}}}}],
+        }},
+    ),
+    (
+        "outcome-records-plan-omits-what-it-does-not-know",
+        "A scan's plan is the keys it knows, not eight of which six say nothing.",
+        {"records": {"plan": {"access": "scan"}, "rows": []}},
+    ),
 ]
 
 
@@ -474,13 +546,6 @@ def build():
         if note:
             entry["note"] = note
         outcomes.append(entry)
-
-    # Outcome kinds the document does not specify well enough to render at all.
-    for kind, why in (
-        ("keys", "§5.6 does not state what a key's string form is"),
-        ("records", "§5.6 states neither the set of `path` words nor the shape of `plan`"),
-    ):
-        gaps.append({"case": f"outcome-{kind}", "unit": "outcome", "silence": why})
 
     # A silence no single case can reach, because it is about a property of the
     # rendering rather than about one value: §5.7 says a set arrives as an array

@@ -1000,6 +1000,68 @@ to what it would have been before either existed. A client **MUST** treat both a
 absent-by-default rather than requiring them. `records` is always an array, and
 holds at most one element when `only` is true — the key's type does not change.
 
+**An element of `records` is a pair, not a value.**
+
+```json
+{"id": "users:1", "value": {"name": "ada"}}
+```
+
+`id` is the record's identity written as §5.7 writes a `record`, and `value` is
+the record itself. A client that types this array as *the records* has the wrong
+shape, and will read `name` one level too high.
+
+**`path`** is one of eight words. The set is closed and a client may switch on it
+exhaustively:
+
+| word | the read |
+|---|---|
+| `record` | reached by identity |
+| `index` | an index answered it |
+| `ordered` | an ordered index answered it, in its order |
+| `scan` | every record was read |
+| `approximate` | an approximate index answered it — see the note of the same name |
+| `graph` | adjacency answered it |
+| `join` | more than one source was combined |
+| `materialised` | a materialised source answered it |
+
+**`plan`** is an object. `access` is always present and always equal to `path`.
+Every other key is **absent when the read had no answer for it**, rather than
+present holding null — so a scan's plan is the two keys it knows, not eight of
+which six say nothing:
+
+| key | type | meaning |
+|---|---|---|
+| `access` | string | the `path` word; **always present** |
+| `source` | string | what the records came from |
+| `table` | string | the table read |
+| `index` | string | the index used |
+| `shape` | string | the shape of the bound the index served |
+| `columns` | integer | columns considered |
+| `cells` | integer | cells read |
+| `at_most` | integer | the ceiling the read was given |
+
+`source` and `shape` are **open word sets**: a client **MUST** render an
+unrecognised one rather than switching on it exhaustively, and **MUST NOT** treat
+one it does not know as an error. `path` is the closed set above; these two are
+not, and the difference matters because they look alike in the same object.
+
+**A note** is an object with two keys:
+
+```json
+{"kind": "fell-back", "message": "the index path could not fill the bound, so the read took the scan path instead"}
+```
+
+`kind` is a stable word a client may group on; `message` is a sentence for a
+person and **MUST NOT** be branched on — the same rule the refusal body follows
+in 5.4. Five kinds exist: `fell-back`, `approximate`, `compared-across-kinds`,
+`cursor-walked`, `subquery-ceiling`. A client **MUST** carry an unrecognised kind
+through to its caller rather than dropping it, because a note it does not know is
+still the store reporting that the answer is qualified.
+
+**`keys`** holds record identities as strings, each written the way §5.7 writes a
+`record`. It is an array of strings and never of objects; unlike `records`, there
+is no value beside the identity, which is the point of the outcome.
+
 ### 5.7 `POST /script` — how a value is spelled
 
 JSON has six types and this store has seventeen, so this table is a decision

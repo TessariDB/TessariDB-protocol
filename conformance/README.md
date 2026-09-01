@@ -202,10 +202,36 @@ the answer to the corpus structurally. First run, 2026-09-01: **47 verified,
 1 disagreement, 11 unreachable of 59.**
 
 A case is `unreachable` when the value has no source that produces it — there is
-no literal for `inf`, `NaN`, empty `bytes` or `regex`, and an unresolvable table
-reference cannot be asked for by construction. **`unreachable` is a third
+no literal for `inf`, `NaN`, empty `bytes` or `regex`. **`unreachable` is a third
 verdict, not a skip**, because a run that quietly passed over those cases would
 print the same "all verified" as a run that checked every one of them.
+
+**`--wire` reaches ten of the eleven.** A value with no literal can still be
+*encoded*, because a wire parameter travels in the value codec rather than as
+source. Point the harness at a node serving both transports over one store and a
+case the language cannot write is stored over the wire and read back over HTTP:
+
+```
+tessaridb --serve 127.0.0.1:47901 --http 127.0.0.1:47902
+python3 verify_json_against_node.py --node 127.0.0.1:47902 --wire 127.0.0.1:47901
+```
+
+```
+units: source=59 | verified=47 | verified-via-store=10 | MISMATCH=1 | unreachable=1
+```
+
+`verified-via-store` is deliberately **not** `verified`: the value passes through
+storage on the way, so a disagreement could belong to the store rather than to
+the rendering. Two claims of different strength, counted apart.
+
+Two things this settled that the file had asserted. An unresolvable table was
+called unreachable *by construction* — it is not: a table reference is an **id**
+in the codec, so id 99 encodes, stores and renders exactly as the corpus says.
+The wall was the parser's, not the store's. And the one case still unreachable is
+now unreachable for a better reason: the node **refuses** a NaN coordinate on
+acceptance — *"a longitude of NaN is not a finite coordinate"* — which §4.6
+explicitly permits it to do. So the corpus states the rendering of a value no
+node will ever hold (`Q-PROTO-12`).
 
 The one disagreement is set ordering: the node sorts by value, the corpus asserts
 insertion order, and §5.7.1 promises only that the order is deterministic. It is

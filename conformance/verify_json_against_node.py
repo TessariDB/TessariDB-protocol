@@ -19,14 +19,30 @@ render it back. Some values have no way to be written:
     lists `1.5` and `1e10` and nothing else.
   * Empty `bytes` has no literal: `0x` is refused as "an odd number of digits".
   * `regex` is a value type with NO literal form in §3 at all.
-  * An unresolvable table (`<table 99>`, `<record 99:1>`) is unreachable BY
-    CONSTRUCTION — a dropped table cannot be named at parse time, which is the
-    same wall W31 hit by hand.
+  * An unresolvable table (`<table 99>`, `<record 99:1>`) cannot be *named* at
+    parse time, which is the same wall W31 hit by hand. This file used to call
+    that unreachable BY CONSTRUCTION; `--wire` disproved it. A table reference
+    is an id in the codec, so id 99 can be encoded and stored, and the node
+    renders it exactly as the corpus says. The wall was the parser's, not the
+    store's.
 
 An unreachable case is reported with its reason and counted separately. It is
 NOT a pass and NOT a failure: a run that silently skipped them would report the
 same "all verified" as a run that checked everything, which is the one output
 shape this project treats as a defect.
+
+`--wire` REACHES MOST OF THEM ANYWAY, AND SAYS SO DIFFERENTLY
+------------------------------------------------------------
+A value with no literal can still be *encoded*, because a wire parameter travels
+in the §4 value codec rather than as source (§3.4). Given `--wire`, a case the
+HTTP surface cannot express is written into a key-value space over the wire and
+then read back over HTTP, which measures the very rendering the corpus claims.
+One process serves both transports over one store (`--serve` with `--http`).
+
+That verdict is `verified-via-store` and NOT `verified`, deliberately: the value
+passes through storage on its way, so a disagreement could belong to the store
+rather than to the rendering. It is a weaker claim than a direct render and is
+counted as its own thing rather than folded into the strong one.
 
 Stdlib only. Python 3.10+.
 """
@@ -231,22 +247,84 @@ def prepare(node: str, corpus: dict) -> None:
     `USE` does NOT survive across requests — each POST is its own session — so
     every later script carries the prelude rather than relying on this call.
     """
-    setup = ["DEFINE NAMESPACE conformance", "USE NAMESPACE conformance", "DEFINE DATABASE conformance",
-             "USE DATABASE conformance"]
-    setup += [f"DEFINE COLLECTION {name}" for name in NAMES.values()]
-    status, answer = run_script(node, "; ".join(setup) + ";")
+    # Each statement on its own, tolerating its own "already in use", so the
+    # harness may be re-run against a node that is still up — which it now shares
+    # with the wire harness. `USE` does not survive a request, hence the prelude.
+    setup = [
+        "DEFINE NAMESPACE conformance;",
+        "USE NAMESPACE conformance; DEFINE DATABASE conformance;",
+    ]
+    setup += [PRELUDE + f"DEFINE COLLECTION {name};" for name in NAMES.values()]
+    for statement in setup:
+        status, answer = run_script(node, statement)
+        if status != 200 and "already in use" not in str(answer):
+            raise SystemExit(f"setup failed ({status}) on `{statement}`: {answer}")
+
+
+def as_codec_model(value):
+    """Translate this corpus's value model into the one `generate.encode` reads.
+
+    The README says a client reads both corpora with one reader. That is very
+    nearly true and NOT quite: an unbounded range bound is `{"unbounded": null}`
+    here and the bare string `"unbounded"` in `values-v1.json`. The divergence is
+    recorded as Q-PROTO-11 rather than papered over — this function exists only
+    so the bridge can run while the question is open, and it translates in one
+    direction, narrowly.
+    """
+    if isinstance(value, dict):
+        if set(value) == {"unbounded"}:
+            return "unbounded"
+        return {k: as_codec_model(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [as_codec_model(v) for v in value]
+    return value
+
+
+def through_the_store(wire, node: str, case: dict) -> dict:
+    """Reach a value that has no literal, by encoding it instead of writing it.
+
+    The value is bound as a wire parameter — which travels in the §4 codec, not
+    as source — written to a key-value space, and read back over HTTP. A space
+    holds one value of any type per key (language reference §6), which is
+    exactly the shape wanted here: nothing is wrapped and nothing is projected.
+    """
+    from generate import encode  # a second implementation of the codec
+
+    try:
+        wire.request("SET probe:1 = $p0;", [("p0", encode(as_codec_model(case["value"])))])
+    except Exception as why:  # noqa: BLE001 — any wire failure is reportable, not fatal
+        return {"case": case["name"], "verdict": "unreachable", "why": f"{why} (over the wire)"}
+
+    script = PRELUDE + "GET probe:1;"
+    status, answer = run_script(node, script)
     if status != 200:
-        raise SystemExit(f"setup failed on a fresh node ({status}): {answer}")
+        return {"case": case["name"], "verdict": "refused", "why": answer.get("error", answer), "sent": script}
+    results = answer.get("results") or []
+    if not results or results[-1].get("kind") != "value":
+        return {"case": case["name"], "verdict": "shape", "why": answer, "sent": script}
+
+    got, expected = results[-1]["value"], case.get("json")
+    if got == expected:
+        return {"case": case["name"], "verdict": "verified-via-store", "sent": script}
+    return {
+        "case": case["name"], "verdict": "MISMATCH-via-store",
+        "sent": script, "corpus": expected, "node": got,
+    }
 
 
-def verify(corpus: dict, node: str) -> list[dict]:
+def verify(corpus: dict, node: str, wire=None) -> list[dict]:
     rows: list[dict] = []
     for case in corpus["cases"]:
         name, expected_absent = case["name"], case.get("omitted", False)
         try:
             source = literal(case["value"])
         except Unreachable as why:
-            rows.append({"case": name, "verdict": "unreachable", "why": str(why)})
+            # An `omitted` case claims the ABSENCE of a key, which a key-value
+            # space cannot express — there is no key to be absent from.
+            if wire is not None and not expected_absent:
+                rows.append(through_the_store(wire, node, case))
+            else:
+                rows.append({"case": name, "verdict": "unreachable", "why": str(why)})
             continue
 
         # An omitted value is not a value the node can return on its own: its
@@ -290,20 +368,44 @@ def main() -> int:
         "--corpus", default=str(Path(__file__).with_name("json-v1.json")), help="path to json-v1.json"
     )
     parser.add_argument("--json", action="store_true", help="emit the rows as JSON")
+    parser.add_argument(
+        "--wire",
+        metavar="HOST:PORT",
+        help="a wire listener on the SAME store, used to reach values that have no literal",
+    )
     args = parser.parse_args()
 
     corpus = json.loads(Path(args.corpus).read_text(encoding="utf-8"))
     NAMES.update(corpus.get("names") or {})
     prepare(args.node, corpus)
-    rows = verify(corpus, args.node)
+
+    wire_node = None
+    if args.wire:
+        from wire import Node, prepare as select_namespace
+
+        host, _, port = args.wire.rpartition(":")
+        wire_node = Node(host, int(port))
+        select_namespace(wire_node)
+        try:
+            wire_node.request("DEFINE SPACE probe;")
+        except Exception:  # noqa: BLE001 — already defined on a node still up from an earlier run
+            pass
+    try:
+        rows = verify(corpus, args.node, wire_node)
+    finally:
+        if wire_node is not None:
+            wire_node.close()
 
     if args.json:
         print(json.dumps(rows, indent=1))
     else:
         for row in rows:
-            mark = {"verified": "  ok", "MISMATCH": "FAIL", "unreachable": "  --"}.get(row["verdict"], "  ??")
+            mark = {
+                "verified": "  ok", "verified-via-store": " ok*", "MISMATCH": "FAIL",
+                "MISMATCH-via-store": "FAIL", "unreachable": "  --",
+            }.get(row["verdict"], "  ??")
             print(f"{mark}  {row['case']:44} {row['verdict']}")
-            if row["verdict"] == "MISMATCH":
+            if row["verdict"] in ("MISMATCH", "MISMATCH-via-store"):
                 print(f"        sent   {row['sent']}")
                 print(f"        corpus {json.dumps(row['corpus'])}")
                 print(f"        node   {json.dumps(row['node'])}")
@@ -320,9 +422,17 @@ def main() -> int:
         + f"\nchecked={total - counts.get('unreachable', 0)} of {total}; "
         "an unreachable case is neither a pass nor a failure — see the module docstring"
     )
+    if counts.get("verified-via-store"):
+        print(
+            "`via-store` is a WEAKER claim than `verified`: the value was encoded, written\n"
+            "over the wire and read back, so it passed through storage on the way and a\n"
+            "disagreement there would not be the rendering's fault."
+        )
     # A mismatch is the finding this script exists to produce, so it exits
     # non-zero; an unreachable case is a known, enumerated limit and does not.
-    return 1 if counts.get("MISMATCH") or counts.get("refused") or counts.get("shape") else 0
+    return 1 if any(
+        counts.get(k) for k in ("MISMATCH", "MISMATCH-via-store", "refused", "shape")
+    ) else 0
 
 
 if __name__ == "__main__":

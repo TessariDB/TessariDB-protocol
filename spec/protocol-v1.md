@@ -857,6 +857,199 @@ user input through JSON escaping — a namespace named with a quote arrives as
 `\"`. A reader that scans for the text between quotation marks returns a truncated
 string and reports success. Use a JSON parser.
 
+### 5.5 `POST /script` — the request
+
+With a `Content-Type` containing `application/json`, the body is an envelope:
+
+```json
+{"script": "SELECT * FROM t WHERE n = $n;", "parameters": {"n": "3"}}
+```
+
+- `script` is **required**. A body with no `script` answers `400`
+  `{"error":"the envelope needs a `script`"}`.
+- `parameters` is optional, and every value in it **MUST** be a JSON string. A
+  number, boolean, array or object is a `400`.
+- Trailing content after the closing brace is a `400`. The body is one object,
+  not a stream.
+
+**A parameter's JSON string carries TessariQL source for a value, not the value
+itself.** This is the single most important thing on this route and it is
+counter-intuitive, because every other parameter API a client author has used
+takes a value.
+
+The server reads the string as a TessariQL literal, in isolation, and the
+consequences are measurable:
+
+| `parameters` | `$x` becomes |
+|---|---|
+| `{"x": "3"}` | the **number** 3 — `RETURN $x + 1;` answers `4` |
+| `{"x": "'3'"}` | the **string** `3` |
+| `{"x": "hello"}` | a `400` — *"`hello` is not a value TessariQL can read on its own"* |
+| `{"x": "'a\\'b'"}` | the string `a'b` — TessariQL's own escaping applies inside |
+
+Three obligations follow, and a client that ignores them is wrong in a way its
+tests will not show:
+
+1. A client **MUST NOT** pass a caller's string through as a parameter. A
+   caller's `"3"` becomes a number and their `"hello"` becomes a `400`; both are
+   silent about what went wrong at the API's own boundary.
+2. A client that offers a typed parameter API over this route **MUST** render
+   each value as TessariQL source and is responsible for quoting and escaping
+   it — which is the burden parameters normally exist to remove.
+3. A client that cannot do that correctly **SHOULD** use the wire protocol
+   (section 3.4), where a parameter is an encoded value and none of this arises,
+   or interpolate nothing and send a plain-body script.
+
+This is **not** a statement-injection hazard: the string is parsed as a value on
+its own, so a parameter cannot add a clause — the fourth row above is a string
+containing a quote, not an escape into the statement. It is a **type-confusion**
+hazard, which is quieter and reaches production more often.
+
+With any other `Content-Type`, the **whole body is the script** and there are no
+parameters. The branch is on what the caller declares, never on sniffing the
+body's shape: a script that happens to begin with `{` is a script.
+
+### 5.6 `POST /script` — the answer
+
+`200` with one object:
+
+```json
+{"results": [ … ]}
+```
+
+`results` holds **one outcome object per statement in the script, in order**, and
+is the HTTP rendering of the outcome list section 3.5 specifies for the wire. The
+same statements produce the same outcomes on both transports; only the encoding
+differs.
+
+**A script is all-or-nothing on this route.** If any statement fails — the first
+or the last — the response is a refusal per section 5.2, carrying that
+statement's error, and the outcomes of the statements that already succeeded are
+**not** reported. `RETURN 1; SELECT * FROM nosuchtable;` answers `400` naming the
+second statement; the `1` is nowhere in the response. A client **MUST NOT** offer
+a caller partial results from a failed script, because it never receives any.
+
+**All-or-nothing describes the response, not the store.** A script is not
+atomic. Statements that ran before the failing one **have taken effect and are
+durable**, and the response says nothing about which they were:
+
+```
+CREATE u:9 = { n: 9 }; SELECT * FROM nosuchtable;
+→ 400 {"error":"no table named \"nosuchtable\" (at 70..81)"}
+   and afterwards, u:9 is in the store
+```
+
+Two obligations for a client, both of which are easy to get wrong precisely
+because the response looks like a clean rejection:
+
+- A client **MUST NOT** describe a failed multi-statement script as *"nothing
+  happened"*. It does not know what happened, and neither does its caller.
+- A client **MUST NOT** retry a failed script automatically. Re-running it
+  re-executes the statements that already succeeded, which turns one create into
+  two and one increment into two.
+
+A caller that needs all-or-nothing wraps the statements in `BEGIN` … `COMMIT`.
+The response shape does not change — both answer `done` like any other statement
+— but the store's behaviour does: a failure inside the transaction rolls the
+whole thing back, and the records written before it are **not** in the store
+afterwards. That is the difference between the two paragraphs above, and it is
+the only way to get it.
+
+Each outcome object carries a `kind`. There are six:
+
+| `kind` | wire tag (3.5) | shape |
+|---|---|---|
+| `done` | 0 | `{"kind":"done"}` |
+| `records` | 1 | `{"kind":"records","path":…,"plan":…,"records":[…]}`, with optional `notes` and `only` |
+| `value` | 2 | `{"kind":"value","value":…}`, or `{"kind":"value"}` — see below |
+| `keys` | 3 | `{"kind":"keys","keys":["…"]}` |
+| `removed` | 4 | `{"kind":"removed","count":2}` |
+| `unknown` | 255 | `{"kind":"unknown"}` |
+
+**`{"kind":"value"}` with no `value` key is not the same as
+`{"kind":"value","value":null}`.** The first is the language's `none` — nothing
+there — and the second is a stored `null`. JSON has one word for both, so the
+distinction is carried by **the presence of the key**. A client whose value type
+cannot hold both **MUST** say which it collapses them onto; a client that maps
+both to its language's `null` has erased a distinction the store maintains, and
+`SELECT` over a field that is absent versus one that is explicitly null will read
+identically to its caller.
+
+**`unknown` means a kind this client's build has never seen**, and it exists so
+that a newer node can add an outcome kind without breaking an older client — the
+same forward-compatibility contract section 3.5 states for the wire, where the
+outcome's length is what makes it skippable. A client **MUST** expose an
+`unknown` to its caller rather than dropping it, and **MUST NOT** stop reading
+the list at the first one.
+
+A client **MUST NOT** treat `unknown` as *an outcome carrying nothing*. It is an
+outcome this build cannot read, which is a different statement and points at a
+different remedy — upgrade, not shrug.
+
+**`records` in detail.** `path` is one word naming how the read reached its
+records; `plan` is the same information as a structure, and the two are rendered
+from one field so they cannot disagree. `notes` is written **only when non-empty**
+and `only` **only when true**, so a response with nothing to report is identical
+to what it would have been before either existed. A client **MUST** treat both as
+absent-by-default rather than requiring them. `records` is always an array, and
+holds at most one element when `only` is true — the key's type does not change.
+
+### 5.7 `POST /script` — how a value is spelled
+
+JSON has six types and this store has seventeen, so this table is a decision
+rather than a translation, and a client author needs all of it. The type of a
+value is **not** recoverable from the JSON alone for the rows marked *lossy*: a
+caller who needs the type reads it from the field's declared kind in the catalog,
+or uses the wire protocol (section 4), where every value carries its tag.
+
+| value | JSON | lossy | note |
+|---|---|---|---|
+| `none` | *the key is absent* | — | see 5.6; absence is the encoding |
+| `null` | `null` | — | |
+| `bool` | `true` / `false` | — | |
+| integer | number | — | exact to 2⁵³; larger integers are exact in the document but not in a parser that reads every number as a double |
+| decimal | **string** | yes | `"12.34"` — a JSON number is a double in every parser that matters, and `dec` exists to keep an amount of money from being one |
+| float | number | — | except non-finite: `"inf"`, `"-inf"`, `"NaN"` are **quoted**, because JSON has no spelling for them and an unquoted one produces a document most parsers reject |
+| `string` | string | — | |
+| `bytes` | string | yes | lowercase hex, no prefix, no separators |
+| `duration` | string | yes | the literal this language writes, e.g. `"1h30m"` |
+| `datetime` | string | yes | RFC 3339 |
+| `uuid` | string | yes | hyphenated lowercase hex |
+| table | string | yes | the table's name; a table whose name the answer cannot resolve is written `"<table 7>"`, with the brackets, so it is visibly not a name |
+| record | string | yes | `"table:id"`; unresolvable is `"<record …>"` |
+| `array` | array | — | elements recurse through this table |
+| `set` | **array** | yes | a set arrives as an array; the collection type is not recoverable |
+| `object` | object | — | a field holding `none` **is omitted**, per 5.6 |
+| `range` | object | — | see below |
+| `geometry` | object | — | GeoJSON, RFC 7946 |
+| `regex` | string | yes | the pattern's source. The server does not execute it; a client **MUST NOT** compile it with its own engine and present the result as this store's semantics |
+
+**A range** is an object, because there is no text form to render it back from:
+
+```json
+{"start": {"bound": "included", "value": 1},
+ "end":   {"bound": "excluded", "value": 5}}
+```
+
+`bound` is `included`, `excluded` or `unbounded`. An **unbounded end carries no
+`value` key at all** — the same rule `none` uses in 5.6 — which is what keeps an
+open end distinct from an end holding `null`. Each endpoint is written by this
+same table, so a decimal endpoint is quoted and a datetime endpoint is RFC 3339.
+
+A client **MUST NOT** model a range as a pair of endpoints without their bound
+kinds: `1..5`, `1..=5` and `1..` are three different spans, and a two-field model
+collapses them onto one.
+
+**Geometry** is GeoJSON. The one rule worth restating at the boundary:
+coordinates are `[longitude, latitude]`. A non-finite coordinate is written
+`null`, which cannot arise from a well-formed shape and can arise from bytes —
+the surface reports what it holds rather than inventing a number.
+
+**Two ambiguities are inherent and are stated rather than hidden.** A quoted
+decimal is indistinguishable from a string that looks like a number, and a range
+object is indistinguishable from a stored object carrying `start` and `end` keys.
+This surface is lossy by construction; a client that needs types uses section 4.
+
 ---
 
 ## 6. What is deliberately **not** part of this protocol

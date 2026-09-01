@@ -184,11 +184,12 @@ Two readers of one document can both misread it the same way, and nothing here
 would notice. Until a corpus is checked against a running node it proves
 agreement between implementations rather than agreement with the database.
 
-**That check now exists for two of the three.**
+**That check now exists for all three.**
 
 ```
-python3 verify_json_against_node.py   --node 127.0.0.1:47901   # the HTTP surface
-python3 verify_values_against_node.py --node 127.0.0.1:47901   # the wire protocol
+python3 verify_json_against_node.py    --node 127.0.0.1:47901   # the HTTP surface
+python3 verify_values_against_node.py  --node 127.0.0.1:47901   # the wire protocol
+python3 verify_queries_against_node.py --node 127.0.0.1:47901   # the parser
 ```
 
 Start the node for the second one with `tessaridb --serve 127.0.0.1:47901`. The
@@ -275,8 +276,64 @@ Both disagreements are **negative zero**, and they are left standing.
   one: `coordinates: [-0.0, 0.0]` yields `+0.0`. A distinction the document
   states deliberately is unreachable from the language (`Q-PROTO-10`).
 
-`queries-v1.json` remains unverified against a node; it needs statements executed
-in order rather than values rendered.
+### The query corpus against a node
+
+```
+tessaridb --serve 127.0.0.1:47901
+python3 verify_queries_against_node.py --node 127.0.0.1:47901
+```
+
+This is the one that reaches the **parser**. The other two send values; a value
+that renders is a value the node held, whereas a statement that renders is only a
+string until something runs it. First run, 2026-09-01:
+
+```
+units: source=27 | ok=19 | builder-refused=8
+inversion: node-refuses=6 | NODE-ACCEPTS=2
+```
+
+**Every rendered case parses and executes**, including the four that put a bound
+parameter in the identity position — `CREATE memories:$p0 = { … }`,
+`UPDATE memories:$p0 SET …`, `DELETE memories:$p0;`. Whether a node accepts a
+parameter as a record id is a parser fact and no rendering test can reach it, so
+until this run it was an assumption.
+
+Eight cases carry no `script` because the **builder** must refuse them, so a node
+cannot pass or fail them. They are counted apart rather than dropped from the
+total. But five of those refusals make a claim *about the node* — that the naive
+rendering would mean something else — and that claim is testable. So each is also
+sent the way a client that did not refuse would have written it. `NODE-ACCEPTS`
+there is the measurement that the refusal is load-bearing.
+
+**Two of the eight came back `NODE-ACCEPTS`, and one that came back
+`node-refuses` was refused for the wrong reason.**
+
+- `CREATE memories:'x' = {  };` is **accepted** and stores an empty record. The
+  builder refuses it as `incomplete`, so the contract is stricter than the
+  language, and two clients — one using the builder, one writing script — differ.
+  Which of them is right is `Q-PROTO-15`.
+- `a-table-that-is-not-a-name-is-refused` carries the hostile string
+  `memories; DROP COLLECTION memories; --`, and the node refuses the naive
+  interpolation of it. Not because the injection is blocked: **`DROP COLLECTION`
+  is not a statement this language has.** `DEFINE COLLECTION` is, `DROP TABLE`
+  is, `DROP COLLECTION` is not (`Q-PROTO-14`). Substituting the statement that
+  does exist, the naive rendering is accepted, both statements execute, and the
+  table is gone:
+
+  ```
+  SELECT * FROM memories; DROP TABLE memories; --;   -> records, done
+  SELECT * FROM memories;                            -> no table named "memories"
+  ```
+
+  So the builder's refusal **is** the only guard, exactly as the case claims —
+  and the case as written demonstrates it with a statement that cannot run, which
+  would let a reader conclude the parser is a second line of defence when it is
+  not. `Q-PROTO-13`. The corpus is left alone: adjusting a vector because a run
+  embarrassed it is the move LR-PROTO-004 exists to prevent.
+
+The refusal messages are worth reading even where they agree. `WHERE 1st = $p0`
+is rejected with *"`1st` is not a duration this store can hold"* — the lexer
+reaches a duration literal before it reaches a field name.
 
 ## Coverage
 

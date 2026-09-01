@@ -664,6 +664,155 @@
         "regex": "\\d+\\s"
       },
       "json": "\\d+\\s"
+    },
+    {
+      "name": "float-negative-zero",
+      "value": {
+        "float_bits": "8000000000000000"
+      },
+      "json": 0
+    },
+    {
+      "name": "datetime-with-nanoseconds",
+      "value": {
+        "datetime": {
+          "seconds": "0",
+          "nanos": 500000000
+        }
+      },
+      "json": "1970-01-01T00:00:00.5Z"
+    },
+    {
+      "name": "duration-zero",
+      "value": {
+        "duration": {
+          "seconds": "0",
+          "nanos": 0
+        }
+      },
+      "json": "0s"
+    },
+    {
+      "name": "duration-negative-whole",
+      "value": {
+        "duration": {
+          "seconds": "-5",
+          "nanos": 0
+        }
+      },
+      "json": "-5s"
+    },
+    {
+      "name": "duration-negative",
+      "value": {
+        "duration": {
+          "seconds": "-1",
+          "nanos": 500000000
+        }
+      },
+      "json": "-500ms",
+      "note": "The floor pair: seconds BELOW zero with a POSITIVE remainder, which is -500ms and not -1s500ms. Written field by field it spells a span one second longer than itself, and reading that back adds another second every time."
+    },
+    {
+      "name": "duration-negative-smallest",
+      "value": {
+        "duration": {
+          "seconds": "-1",
+          "nanos": 999999999
+        }
+      },
+      "json": "-1ns",
+      "note": "The smallest span below zero. Same carry, reaching every unit."
+    },
+    {
+      "name": "duration-sub-second",
+      "value": {
+        "duration": {
+          "seconds": "0",
+          "nanos": 1500
+        }
+      },
+      "json": "1us500ns"
+    },
+    {
+      "name": "duration-a-day-is-written-in-hours",
+      "value": {
+        "duration": {
+          "seconds": "86400",
+          "nanos": 0
+        }
+      },
+      "json": "24h",
+      "note": "The hour is the largest unit written. `1d` and `1w` are readable on input and never come back — a week is 168h."
+    },
+    {
+      "name": "float-with-no-fractional-part",
+      "value": {
+        "float_bits": "4000000000000000"
+      },
+      "json": 2,
+      "note": "2.0, and the reason the float row is lossy: it is written `2` and is not distinguishable from the integer."
+    },
+    {
+      "name": "record-text-id-that-looks-like-an-integer",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "text": "7"
+          }
+        }
+      },
+      "json": "users:7",
+      "note": "Identical to the integer id 7. A client MUST NOT parse this half back into a typed id."
+    },
+    {
+      "name": "record-uuid-id",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "uuid": "0102030405060708090a0b0c0d0e0f10"
+          }
+        }
+      },
+      "json": "users:0102030405060708090a0b0c0d0e0f10"
+    },
+    {
+      "name": "record-bytes-id",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "bytes": "00ff"
+          }
+        }
+      },
+      "json": "users:0x00ff"
+    },
+    {
+      "name": "record-text-id-needing-quotes",
+      "value": {
+        "record": {
+          "table": 3,
+          "id": {
+            "text": "a b:c"
+          }
+        }
+      },
+      "json": "users:a b:c"
+    },
+    {
+      "name": "record-unresolvable-table",
+      "value": {
+        "record": {
+          "table": 99,
+          "id": {
+            "int": "1"
+          }
+        }
+      },
+      "json": "<record 99:1>"
     }
   ],
   "outcomes": [
@@ -970,54 +1119,9 @@
   ],
   "gaps": [
     {
-      "case": "float-negative-zero",
+      "case": "set-order-across-types",
       "unit": "value",
-      "silence": "§5.7 does not say how negative zero is written"
-    },
-    {
-      "case": "datetime-with-nanoseconds",
-      "unit": "value",
-      "silence": "§5.7 says RFC 3339 and fixes no sub-second precision"
-    },
-    {
-      "case": "duration-zero",
-      "unit": "value",
-      "silence": "§5.7 does not say how a zero duration is written"
-    },
-    {
-      "case": "duration-negative",
-      "unit": "value",
-      "silence": "§5.7 gives one duration example and no rendering rule"
-    },
-    {
-      "case": "duration-sub-second",
-      "unit": "value",
-      "silence": "§5.7 gives one duration example and no rendering rule"
-    },
-    {
-      "case": "record-uuid-id",
-      "unit": "value",
-      "silence": "§5.7 does not spell a uuid record id inside \"table:id\""
-    },
-    {
-      "case": "record-bytes-id",
-      "unit": "value",
-      "silence": "§5.7 does not spell a bytes record id inside \"table:id\""
-    },
-    {
-      "case": "record-text-id-needing-quotes",
-      "unit": "value",
-      "silence": "§5.7 does not spell a text record id inside \"table:id\""
-    },
-    {
-      "case": "record-unresolvable-table",
-      "unit": "value",
-      "silence": "§5.7 writes `\"<record …>\"` with the ellipsis unresolved"
-    },
-    {
-      "case": "set-element-order",
-      "unit": "value",
-      "silence": "§5.7 does not state whether a set's array order is defined"
+      "silence": "§5.7.1 states the order is deterministic and deliberately does not publish the rank BETWEEN types; a client must not depend on it, so no vector fixes it"
     }
   ]
 }

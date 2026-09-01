@@ -1077,7 +1077,7 @@ or uses the wire protocol (section 4), where every value carries its tag.
 | `bool` | `true` / `false` | — | |
 | integer | number | — | exact to 2⁵³; larger integers are exact in the document but not in a parser that reads every number as a double |
 | decimal | **string** | yes | `"12.34"` — a JSON number is a double in every parser that matters, and `dec` exists to keep an amount of money from being one |
-| float | number | — | except non-finite: `"inf"`, `"-inf"`, `"NaN"` are **quoted**, because JSON has no spelling for them and an unquoted one produces a document most parsers reject |
+| float | number | yes | except non-finite: `"inf"`, `"-inf"`, `"NaN"` are **quoted**, because JSON has no spelling for them and an unquoted one produces a document most parsers reject. Lossy because a float with no fractional part writes as an integer — see below |
 | `string` | string | — | |
 | `bytes` | string | yes | lowercase hex, no prefix, no separators |
 | `duration` | string | yes | the literal this language writes, e.g. `"1h30m"` |
@@ -1117,6 +1117,94 @@ the surface reports what it holds rather than inventing a number.
 decimal is indistinguishable from a string that looks like a number, and a range
 object is indistinguishable from a stored object carrying `start` and `end` keys.
 This surface is lossy by construction; a client that needs types uses section 4.
+
+#### 5.7.1 The spellings the table above is too small to hold
+
+A one-line cell says which JSON type a value takes and cannot say how the value
+is written inside it. Five rows need that second half, and a client that guesses
+it guesses wrong in ways nothing reports.
+
+**A float is written positionally and drops an empty fraction.** `1.5` is `1.5`,
+but `2.0` is `2` and `1e10` is `10000000000` — there is no exponent form and no
+trailing `.0`, so a float that happens to hold a whole number is **not
+distinguishable from an integer**, which is why the row is marked lossy. The
+consequence at the far end of the range is worth planning for rather than
+discovering: the largest finite double writes as **309 digits**, and the smallest
+subnormal as a `0.` followed by 323 zeros and a `5`. A client that reads numbers
+into a fixed-width buffer, or that assumes a JSON number is short, meets this on
+a value the store considers ordinary.
+
+**There is no negative zero to write.** It is not a rendering choice: a float is
+normalised when the value is built, so `-0.0` and `0.0` are one value and it
+writes as `0`. A client MUST NOT expect the sign of a zero to survive, here or
+on the wire.
+
+**A datetime carries up to nine fractional digits, and no more than it has.**
+Trailing zeros are trimmed, so `…:56.100Z` writes as `…:56.1Z` and a whole second
+carries no fraction at all. The instant is **always UTC and always ends in `Z`**:
+an offset supplied in the input is applied and then discarded, so
+`2026-09-01T12:34:56+03:00` comes back as `2026-09-01T09:34:56Z`. **The original
+offset is not recoverable** — this type is a point in time and carries no zone,
+and a client that needs the caller's zone stores it in a field of its own.
+
+**A duration is a decomposition, not the text the caller wrote.** It is written
+largest unit first over exactly six units — `h`, `m`, `s`, `ms`, `us`, `ns` — and
+a unit whose count is zero is omitted entirely; a zero span is `0s`, because an
+empty string is not a literal. So `1500ms` comes back as `1s500ms` and `1h30m`
+comes back unchanged. **The hour is the largest unit written**, even though the
+language reads a day and a week on input: `1d` comes back as `24h` and `1w` as
+`168h`. A client that renders a duration for a person, or that compares one
+against text it wrote itself, cannot assume it gets its own units back. A
+span below zero is written as a leading `-` followed by the magnitude in that
+same decomposition: −0.5 s is `-500ms`, and the smallest span below zero is
+`-1ns`. **The text a span writes reads back as that span**, in this language's
+own duration syntax, in both directions.
+
+**A record id is written plainly, and is NOT a TessariQL literal.** The string is
+`table:id`, and the id half is the id's own text with no quoting and no escaping:
+
+| id | as a value elsewhere | inside `table:id` |
+|---|---|---|
+| integer `1` | `1` | `users:1` |
+| text `'ada'` | `"ada"` | `users:ada` |
+| text `'has space'` | `"has space"` | `users:has space` |
+| text `'7'` | `"7"` | `users:7` |
+| uuid | `"0195e0a1-1111-7000-8000-000000000000"` | `sessions:0195e0a1111170008000000000000000` |
+| bytes `0x0a1b` | `"0a1b"` | `files:0x0a1b` |
+
+Two of those rows disagree with the value table above **on purpose and by
+consequence**: a uuid id loses its hyphens and a bytes id gains a `0x`, because
+the id half is written in the identity syntax rather than the value syntax. A
+client that reuses its uuid parser on the id half will not find hyphens where it
+expects them.
+
+The rest of the table is the warning. `users:7` is the integer `7` and the text
+`'7'` written identically; `users:a:b` cannot be split on its colon; and a text
+id containing a quote arrives unescaped. **A client MUST NOT parse this string
+back into a typed record id.** It is an identifier to display, log and pass
+back — and a caller that needs the id's type reads it from section 4, where it
+carries its tag. This is the same bargain the lossy column names, stated once
+more because a record id is the value most likely to be round-tripped by a
+client author who did not notice it was lossy.
+
+**A record whose table the answer cannot name** is written `<record T:id>`, with
+the brackets, where `T` is the table's numeric id — for example `<record 7:1>`.
+This is the record-level form of the `"<table 7>"` rule above, and it arises
+where a table has been dropped while a value still refers to it. The brackets are
+what make it visibly not a name: `<` cannot begin a table name, so a client can
+detect the form rather than mistaking it for a table called `<record 7`.
+
+**A set's array order is defined, but only half of it is published.** A set is
+written in the node's own ascending order with duplicates already removed, so
+`set [3, 1, 2, 1]` is `[1,2,3]`. Within one type that order is the obvious one.
+**Across types it is deliberately not stated here**, because section 4 goes out
+of its way to say a client is *not* required to implement a total order over
+mixed values in order to encode one, and publishing the node's rank would quietly
+make that a requirement after all. So a client **MUST NOT** rely on a set
+preserving insertion order — it has none to preserve — and **MUST NOT** depend on
+where a number sorts relative to a string. It **MAY** rely on the order being
+deterministic: two equal sets write the same array, which is what lets an answer
+be compared without being sorted first.
 
 ---
 

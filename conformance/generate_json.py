@@ -48,15 +48,6 @@ class Silence(Exception):
 # A value whose JSON encoding is the *absence* of its key (§5.7, `none`).
 OMITTED = object()
 
-NAME_START = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")
-NAME_REST = NAME_START | set("0123456789")
-
-
-def is_name(text):
-    """A bare identifier — used to decide whether a record id needs no quoting."""
-    return bool(text) and text[0] in NAME_START and all(c in NAME_REST for c in text)
-
-
 # --- §5.7, row by row ---------------------------------------------------------
 
 
@@ -80,27 +71,48 @@ def spell_float(bits):
         return "inf"
     if value == float("-inf"):
         return "-inf"
-    if value == 0.0 and struct.pack(">d", value)[0] & 0x80:
-        # Negative zero is finite, so §5.7's non-finite rule does not reach it,
-        # and no other row says whether the sign survives. Not guessed.
-        raise Silence("§5.7 does not say how negative zero is written")
+    # §5.7.1: there is no negative zero to write. It is not a rendering choice —
+    # a float is normalised when the value is built, so this and `0.0` are one
+    # value.
+    if value == 0.0:
+        return 0
+    # §5.7.1: a float with no fractional part writes as an integer, which is
+    # what makes the row lossy. Exponent form is a separate question and does
+    # not arise here: this file is compared as JSON VALUES, and `1e-05` and
+    # `0.00001` are one value.
+    if value.is_integer():
+        return int(value)
     return value
 
 
 def spell_duration(seconds, nanos):
-    """`duration` → "the literal this language writes, e.g. `1h30m`" (§5.7).
+    """`duration` → the decomposition §5.7.1 states.
 
-    The document gives an example and no algorithm, so this renders only what any
-    reading agrees on: a non-negative whole number of seconds, decomposed
-    largest-unit-first with zero components dropped.
+    Six units, largest first, zero counts omitted, `0s` for an empty span, and a
+    leading `-` before the MAGNITUDE for a span below zero.
+
+    The hour is the largest unit: `d` and `w` are readable on input and are never
+    written, so a week is `168h`. An earlier draft of this file decomposed into
+    weeks and days, which no case happened to reach.
+
+    `seconds` and `nanos` are a floor pair — the seconds may be negative while
+    the remainder is a positive addend — so the magnitude is taken over the total
+    rather than field by field. Doing it field by field spells a span one second
+    longer than itself.
     """
-    if int(seconds) < 0 or nanos:
-        raise Silence("§5.7 gives one duration example and no rendering rule")
-    remaining = int(seconds)
+    total = int(seconds) * 1_000_000_000 + int(nanos)
+    out = "-" if total < 0 else ""
+    remaining = abs(total)
     if remaining == 0:
-        raise Silence("§5.7 does not say how a zero duration is written")
-    out = ""
-    for unit, size in (("w", 604800), ("d", 86400), ("h", 3600), ("m", 60), ("s", 1)):
+        return "0s"
+    for unit, size in (
+        ("h", 3_600_000_000_000),
+        ("m", 60_000_000_000),
+        ("s", 1_000_000_000),
+        ("ms", 1_000_000),
+        ("us", 1_000),
+        ("ns", 1),
+    ):
         count, remaining = divmod(remaining, size)
         if count:
             out += f"{count}{unit}"
@@ -114,12 +126,16 @@ def spell_datetime(seconds, nanos):
     instant and permits any sub-second precision, and §5.7 chooses neither — so
     a sub-second value is a silence rather than a rounding decision.
     """
-    if nanos:
-        raise Silence("§5.7 says RFC 3339 and fixes no sub-second precision")
     import datetime as dt
 
     moment = dt.datetime.fromtimestamp(int(seconds), dt.timezone.utc)
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = moment.strftime("%Y-%m-%dT%H:%M:%S")
+    # §5.7.1: up to nine digits, trailing zeros trimmed, and no `.` at all when
+    # there is no remainder. Always `Z`: the instant carries no zone, so an
+    # offset in the input was applied and discarded before it got here.
+    if int(nanos):
+        text += "." + f"{int(nanos):09d}".rstrip("0")
+    return text + "Z"
 
 
 def spell_uuid(hexadecimal):
@@ -138,16 +154,21 @@ def spell_table(table_id, names):
 def spell_record_id(identity):
     """The `id` half of `"table:id"`.
 
-    §5.7 writes `"table:id"` and stops. An integer id and a bare-name text id have
-    one obvious spelling each; a uuid, a bytes id and a text id needing quotes do
-    not, and are not invented here.
+    §5.7.1: the id's own text, with NO quoting and NO escaping — this half is
+    written in the identity syntax rather than the value syntax, which is why a
+    uuid loses its hyphens and a bytes id keeps its `0x` while the standalone
+    rows for those types do the opposite.
     """
     kind, payload = next(iter(identity.items()))
     if kind == "int":
         return str(int(payload))
-    if kind == "text" and is_name(payload):
+    if kind == "text":
         return payload
-    raise Silence(f"§5.7 does not spell a {kind} record id inside \"table:id\"")
+    if kind == "uuid":
+        return payload.lower().replace("-", "")
+    if kind == "bytes":
+        return "0x" + payload.lower()
+    raise Silence(f"§5.7.1 does not spell a {kind} record id inside \"table:id\"")
 
 
 def spell_record(record, names):
@@ -155,9 +176,10 @@ def spell_record(record, names):
     identity = spell_record_id(record["id"])
     table_id = record["table"]
     if table_id not in names:
-        # The document writes the unresolvable form with a literal ellipsis, so
-        # what stands in for it is unstated.
-        raise Silence("§5.7 writes `\"<record …>\"` with the ellipsis unresolved")
+        # §5.7.1 resolves the ellipsis: the table's NUMERIC id, so the whole
+        # thing reads `<record 7:1>`. The brackets are what make it detectable —
+        # `<` cannot begin a table name.
+        return f"<record {table_id}:{identity}>"
     return f"{names[table_id]}:{identity}"
 
 
@@ -425,8 +447,39 @@ VALUE_CASES = [
     ("float-negative-zero", None, {"float_bits": "8000000000000000"}),
     ("datetime-with-nanoseconds", None, {"datetime": {"seconds": "0", "nanos": 500000000}}),
     ("duration-zero", None, {"duration": {"seconds": "0", "nanos": 0}}),
-    ("duration-negative", None, {"duration": {"seconds": "-5", "nanos": 0}}),
+    ("duration-negative-whole", None, {"duration": {"seconds": "-5", "nanos": 0}}),
+    (
+        "duration-negative",
+        "The floor pair: seconds BELOW zero with a POSITIVE remainder, which is "
+        "-500ms and not -1s500ms. Written field by field it spells a span one "
+        "second longer than itself, and reading that back adds another second "
+        "every time.",
+        {"duration": {"seconds": "-1", "nanos": 500000000}},
+    ),
+    (
+        "duration-negative-smallest",
+        "The smallest span below zero. Same carry, reaching every unit.",
+        {"duration": {"seconds": "-1", "nanos": 999999999}},
+    ),
     ("duration-sub-second", None, {"duration": {"seconds": "0", "nanos": 1500}}),
+    (
+        "duration-a-day-is-written-in-hours",
+        "The hour is the largest unit written. `1d` and `1w` are readable on "
+        "input and never come back — a week is 168h.",
+        {"duration": {"seconds": "86400", "nanos": 0}},
+    ),
+    (
+        "float-with-no-fractional-part",
+        "2.0, and the reason the float row is lossy: it is written `2` and is "
+        "not distinguishable from the integer.",
+        {"float_bits": "4000000000000000"},
+    ),
+    (
+        "record-text-id-that-looks-like-an-integer",
+        "Identical to the integer id 7. A client MUST NOT parse this half back "
+        "into a typed id.",
+        {"record": {"table": 3, "id": {"text": "7"}}},
+    ),
     ("record-uuid-id", None, {"record": {"table": 3, "id": {"uuid": "0102030405060708090a0b0c0d0e0f10"}}}),
     ("record-bytes-id", None, {"record": {"table": 3, "id": {"bytes": "00ff"}}}),
     ("record-text-id-needing-quotes", None, {"record": {"table": 3, "id": {"text": "a b:c"}}}),
@@ -548,14 +601,19 @@ def build():
         outcomes.append(entry)
 
     # A silence no single case can reach, because it is about a property of the
-    # rendering rather than about one value: §5.7 says a set arrives as an array
-    # and says nothing about the order of that array, so two conforming nodes
-    # may answer the same set differently and both be right.
+    # rendering rather than about one value. §5.7.1 now states the half that is
+    # publishable — the order is ascending, deduplicated and deterministic — and
+    # deliberately withholds the cross-type rank, since section 4 says a client
+    # need not implement one. So what remains is a stated non-guarantee rather
+    # than a gap, and a case would only pin an order clients are told not to
+    # depend on.
     gaps.append(
         {
-            "case": "set-element-order",
+            "case": "set-order-across-types",
             "unit": "value",
-            "silence": "§5.7 does not state whether a set's array order is defined",
+            "silence": "§5.7.1 states the order is deterministic and deliberately "
+            "does not publish the rank BETWEEN types; a client must not depend "
+            "on it, so no vector fixes it",
         }
     )
 

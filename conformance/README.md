@@ -319,6 +319,12 @@ parameter in the identity position — `CREATE memories:$p0 = { … }`,
 parameter as a record id is a parser fact and no rendering test can reach it, so
 until this run it was an assumption.
 
+That run is left as it was measured. The corpus has grown since: §4.2 gained the
+line window and three cases with it — two rendered, one refused — so the same
+harness now reads `source=30 | ok=21 | builder-refused=9`. The figures above are
+not edited to match, because a recorded measurement that is quietly updated stops
+being one.
+
 Eight cases carry no `script` because the **builder** must refuse them, so a node
 cannot pass or fail them. They are counted apart rather than dropped from the
 total. But five of those refusals make a claim *about the node* — that the naive

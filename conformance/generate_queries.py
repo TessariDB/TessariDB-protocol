@@ -129,11 +129,27 @@ def render_assignments(fields, binder):
 # --- §4.2 / §4.4 / §4.5 / §4.6 statements -------------------------------------
 
 
+def render_projection_item(item):
+    """One entry of §4.2's projection: a field name, or a line window.
+
+    A window's two counts are literals rather than parameters, for the reason
+    `START` and `LIMIT` are: they are the statement's shape, not data, and they
+    arrive as integers, so there is nothing to smuggle syntax through. The alias
+    is the field's own name, so the field comes back under the name it always
+    had, holding less.
+    """
+    if isinstance(item, str):
+        return checked("a field", item)
+    window = item["lines"]
+    field = checked("a field", window["field"])
+    return f"string::lines({field}, {window['start']}, {window['count']}) AS {field}"
+
+
 def render_select(spec, binder):
     table = checked("a table", spec["from"])
     named = spec.get("fields", [])
     if named:
-        projection = ", ".join(checked("a field", name) for name in named)
+        projection = ", ".join(render_projection_item(item) for item in named)
     else:
         projection = "*"
 
@@ -239,6 +255,26 @@ CASES = [
         "select-named-fields-in-the-order-named",
         {"select": {"from": "memories", "fields": ["weight", "body"]}},
         "A projection keeps call order — unlike an object body, which sorts (§4.8).",
+    ),
+    case(
+        "select-a-line-window-instead-of-the-whole-field",
+        {"select": {"from": "memories", "fields": [{"lines": {"field": "body", "start": 0, "count": 40}}]}},
+        "A long body comes back a window at a time; the alias is the field's own name (§4.2).",
+    ),
+    case(
+        "select-a-line-window-beside-a-plain-field-keeps-call-order",
+        {
+            "select": {
+                "from": "memories",
+                "fields": ["weight", {"lines": {"field": "body", "start": 40, "count": 40}}],
+            }
+        },
+        "A window is one projection item, so it orders with the plain names (§4.2).",
+    ),
+    case(
+        "a-line-window-on-a-field-that-is-not-a-name-is-refused",
+        {"select": {"from": "memories", "fields": [{"lines": {"field": "body-text", "start": 0, "count": 40}}]}},
+        "The field inside a window is checked exactly as a bare field name is (§3).",
     ),
     case(
         "select-one-comparison",

@@ -129,8 +129,24 @@ SELECT <projection> FROM <table>
 
 rendered on one line, each present clause preceded by one space.
 
-- **`<projection>`** is `*` when no field is named; otherwise the named fields in
-  **the order they were named**, joined by `", "`.
+- **`<projection>`** is `*` when nothing is named; otherwise the named **items**
+  in **the order they were named**, joined by `", "`. An item is either a field
+  name, or a **line window**:
+
+```
+projection  ::=  "*" / item *( ", " item )
+item        ::=  <field> / window
+window      ::=  "string::lines(" <field> ", " <count> ", " <count> ") AS " <field>
+```
+
+  A window reads part of a long text field — `<count>` lines from a zero-based
+  line `<count>` — so a large body does not come back whole. Its two counts are
+  **literals** rather than parameters, for the reason `START` and `LIMIT`'s count
+  is: they are part of the statement's shape rather than data, and a builder
+  receives them as unsigned integers, so there is nothing a caller can smuggle
+  syntax through. The alias is **the field's own name**, so the field arrives
+  under the name it always had and a caller's mapping does not change with the
+  window.
 - **`<ordering>`** is `<name> ASC` or `<name> DESC` per field, in the order the
   orderings were added, joined by `", "`. The direction is always written out,
   including when it is the node's default, so the statement says what it does.

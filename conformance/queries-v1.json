@@ -33,6 +33,70 @@
       "parameters": {}
     },
     {
+      "name": "select-a-line-window-instead-of-the-whole-field",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            {
+              "lines": {
+                "field": "body",
+                "start": 0,
+                "count": 40
+              }
+            }
+          ]
+        }
+      },
+      "note": "A long body comes back a window at a time; the alias is the field's own name (§4.2).",
+      "script": "SELECT string::lines(body, 0, 40) AS body FROM memories;",
+      "parameters": {}
+    },
+    {
+      "name": "select-a-line-window-beside-a-plain-field-keeps-call-order",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            "weight",
+            {
+              "lines": {
+                "field": "body",
+                "start": 40,
+                "count": 40
+              }
+            }
+          ]
+        }
+      },
+      "note": "A window is one projection item, so it orders with the plain names (§4.2).",
+      "script": "SELECT weight, string::lines(body, 40, 40) AS body FROM memories;",
+      "parameters": {}
+    },
+    {
+      "name": "a-line-window-on-a-field-that-is-not-a-name-is-refused",
+      "build": {
+        "select": {
+          "from": "memories",
+          "fields": [
+            {
+              "lines": {
+                "field": "body-text",
+                "start": 0,
+                "count": 40
+              }
+            }
+          ]
+        }
+      },
+      "note": "The field inside a window is checked exactly as a bare field name is (§3).",
+      "refused": {
+        "reason": "not-a-name",
+        "what": "a field",
+        "name": "body-text"
+      }
+    },
+    {
       "name": "select-one-comparison",
       "build": {
         "select": {

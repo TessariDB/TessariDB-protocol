@@ -127,18 +127,26 @@ Three things differ from the other two corpora:
 
 ### `gaps` — where the document does not say enough
 
-Twelve entries, produced by writing an implementation from §5.6 and §5.7 alone
-and recording every place it could not proceed: how a negative zero, a
-sub-second or negative duration, or a sub-second datetime is written; how a
-uuid, bytes, or quote-needing text record id is spelled inside `"table:id"`;
-what stands in for the ellipsis in `"<record …>"`; whether a set's array order is
-defined; and the two outcome kinds — `keys` and `records` — whose contents §5.6
-names without specifying.
+**One entry.** The list is produced by writing an implementation from §5.6 and
+§5.7 alone and recording every place it cannot proceed. It began at twelve — the
+two outcome kinds §5.6 named without shaping, and the ten value renderings §5.7
+left to the reader — and the document has since answered eleven of them.
 
-They are recorded, never filled in from the server's behaviour. A corpus written
-from the document is only worth having because it **disagrees** where the
+The one that remains is `set-order-across-types`, and it is a different kind of
+entry from the eleven that closed. §5.7.1 states that a set's array is ascending,
+deduplicated and deterministic, and deliberately does **not** publish the rank
+between values of different types, because §4 says a client is not required to
+implement a total order over mixed values in order to encode one — publishing the
+node's rank would make that a requirement by the back door. So it is a stated
+non-guarantee that no vector can pin, rather than something the document forgot.
+
+Entries are recorded, never filled in from the server's behaviour. A corpus
+written from the document is only worth having because it **disagrees** where the
 document is unclear, and a case invented to remove a gap would destroy the one
 property the file has.
+
+Read the count from the file rather than from this paragraph: `gaps` is a JSON
+array and this sentence is prose that has already been wrong once.
 
 ## Regenerating
 

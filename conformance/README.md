@@ -181,9 +181,32 @@ state is a defect in the document).
 That the bytes are what a **node** actually sends and accepts.
 
 Two readers of one document can both misread it the same way, and nothing here
-would notice. Verification against a running node is owed, and until it lands
-this corpus proves agreement between implementations rather than agreement with
-the database.
+would notice. Until a corpus is checked against a running node it proves
+agreement between implementations rather than agreement with the database.
+
+**That check now exists for `json-v1.json`, and only for it.**
+
+```
+python3 verify_json_against_node.py --node 127.0.0.1:47901
+```
+
+It writes each case's value as TessariQL, asks a node to render it, and compares
+the answer to the corpus structurally. First run, 2026-09-01: **47 verified,
+1 disagreement, 11 unreachable of 59.**
+
+A case is `unreachable` when the value has no source that produces it — there is
+no literal for `inf`, `NaN`, empty `bytes` or `regex`, and an unresolvable table
+reference cannot be asked for by construction. **`unreachable` is a third
+verdict, not a skip**, because a run that quietly passed over those cases would
+print the same "all verified" as a run that checked every one of them.
+
+The one disagreement is set ordering: the node sorts by value, the corpus asserts
+insertion order, and §5.7.1 promises only that the order is deterministic. It is
+left standing rather than edited away — a corpus adjusted until it agrees with
+the engine is no longer evidence about the document.
+
+`values-v1.json` and `queries-v1.json` remain unverified against a node. The byte
+corpus needs the wire protocol rather than HTTP, which is a different harness.
 
 ## Coverage
 

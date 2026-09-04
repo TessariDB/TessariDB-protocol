@@ -942,6 +942,7 @@
         "records": {
           "plan": {
             "access": "record",
+            "exact": true,
             "table": "users"
           },
           "rows": [
@@ -970,6 +971,7 @@
         "path": "record",
         "plan": {
           "access": "record",
+          "exact": true,
           "table": "users"
         },
         "records": [
@@ -989,6 +991,7 @@
         "records": {
           "plan": {
             "access": "scan",
+            "exact": true,
             "table": "users",
             "cells": 40
           },
@@ -1000,6 +1003,7 @@
         "path": "scan",
         "plan": {
           "access": "scan",
+          "exact": true,
           "table": "users",
           "cells": 40
         },
@@ -1013,6 +1017,7 @@
         "records": {
           "plan": {
             "access": "scan",
+            "exact": true,
             "table": "users",
             "cells": 40
           },
@@ -1030,6 +1035,7 @@
         "path": "scan",
         "plan": {
           "access": "scan",
+          "exact": true,
           "table": "users",
           "cells": 40
         },
@@ -1049,6 +1055,7 @@
         "records": {
           "plan": {
             "access": "index",
+            "exact": true,
             "table": "users",
             "index": "by_name",
             "shape": "point"
@@ -1080,6 +1087,7 @@
         "path": "index",
         "plan": {
           "access": "index",
+          "exact": true,
           "table": "users",
           "index": "by_name",
           "shape": "point"
@@ -1101,7 +1109,8 @@
       "outcome": {
         "records": {
           "plan": {
-            "access": "scan"
+            "access": "scan",
+            "exact": true
           },
           "rows": []
         }
@@ -1110,11 +1119,62 @@
         "kind": "records",
         "path": "scan",
         "plan": {
-          "access": "scan"
+          "access": "scan",
+          "exact": true
         },
         "records": []
       },
-      "note": "A scan's plan is the keys it knows, not eight of which six say nothing."
+      "note": "A scan's plan is the keys it knows, not eight of which six say nothing — except `exact`, which is written even when it is dull."
+    },
+    {
+      "name": "outcome-records-plan-says-why-it-is-not-exact",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "approximate",
+            "exact": false,
+            "table": "points",
+            "index": "by_at",
+            "inexact": "an approximate index answered this, so a nearer record may exist"
+          },
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "approximate",
+        "plan": {
+          "access": "approximate",
+          "exact": false,
+          "table": "points",
+          "index": "by_at",
+          "inexact": "an approximate index answered this, so a nearer record may exist"
+        },
+        "records": []
+      },
+      "note": "`inexact` accompanies a false `exact` and carries the node's own words; a client MUST NOT phrase the reason itself, having not performed the read."
+    },
+    {
+      "name": "outcome-records-plan-without-exactness-said-nothing",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "scan",
+            "table": "users"
+          },
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "scan",
+        "plan": {
+          "access": "scan",
+          "table": "users"
+        },
+        "records": []
+      },
+      "note": "The third state of §3.5 on this transport: a plan with no `exact` key at all is a node that predates the field and made NO claim. A client MUST NOT read it as `exact: true`."
     }
   ],
   "gaps": [

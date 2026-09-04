@@ -539,7 +539,7 @@ OUTCOME_CASES = [
         "outcome-records-element-is-a-pair",
         "A client that types this array as the records reads `name` one level too high.",
         {"records": {
-            "plan": {"access": "record", "table": "users"},
+            "plan": {"access": "record", "exact": True, "table": "users"},
             "rows": [{"id": {"record": {"table": 3, "id": {"int": "1"}}},
                       "value": {"object": {"name": {"string": "ada"}}}}],
         }},
@@ -549,7 +549,7 @@ OUTCOME_CASES = [
         "No notes and not ONLY, so neither key appears — byte-identical to what "
         "this response was before either clause existed.",
         {"records": {
-            "plan": {"access": "scan", "table": "users", "cells": 40},
+            "plan": {"access": "scan", "exact": True, "table": "users", "cells": 40},
             "rows": [],
         }},
     ),
@@ -557,7 +557,7 @@ OUTCOME_CASES = [
         "outcome-records-with-a-note",
         "`kind` may be grouped on; `message` is for a person and MUST NOT be branched on.",
         {"records": {
-            "plan": {"access": "scan", "table": "users", "cells": 40},
+            "plan": {"access": "scan", "exact": True, "table": "users", "cells": 40},
             "notes": [{"kind": "fell-back",
                        "message": "the index path could not fill the bound, so the read took the scan path instead"}],
             "rows": [],
@@ -567,7 +567,7 @@ OUTCOME_CASES = [
         "outcome-records-only",
         "`records` stays an array holding at most one — the key's type does not change.",
         {"records": {
-            "plan": {"access": "index", "table": "users", "index": "by_name", "shape": "point"},
+            "plan": {"access": "index", "exact": True, "table": "users", "index": "by_name", "shape": "point"},
             "only": True,
             "rows": [{"id": {"record": {"table": 3, "id": {"int": "1"}}},
                       "value": {"object": {"name": {"string": "ada"}}}}],
@@ -575,8 +575,27 @@ OUTCOME_CASES = [
     ),
     (
         "outcome-records-plan-omits-what-it-does-not-know",
-        "A scan's plan is the keys it knows, not eight of which six say nothing.",
-        {"records": {"plan": {"access": "scan"}, "rows": []}},
+        "A scan's plan is the keys it knows, not eight of which six say nothing — "
+        "except `exact`, which is written even when it is dull.",
+        {"records": {"plan": {"access": "scan", "exact": True}, "rows": []}},
+    ),
+    (
+        "outcome-records-plan-says-why-it-is-not-exact",
+        "`inexact` accompanies a false `exact` and carries the node's own words; a "
+        "client MUST NOT phrase the reason itself, having not performed the read.",
+        {"records": {
+            "plan": {"access": "approximate", "exact": False, "table": "points",
+                     "index": "by_at",
+                     "inexact": "an approximate index answered this, so a nearer record may exist"},
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-plan-without-exactness-said-nothing",
+        "The third state of \u00a73.5 on this transport: a plan with no `exact` key "
+        "at all is a node that predates the field and made NO claim. A client MUST "
+        "NOT read it as `exact: true`.",
+        {"records": {"plan": {"access": "scan", "table": "users"}, "rows": []}},
     ),
 ]
 

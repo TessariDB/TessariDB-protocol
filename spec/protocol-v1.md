@@ -353,6 +353,49 @@ A client that ignores the flag is conforming but will render every `ONLY` read a
 a one-element array with nothing to say it was asked for differently, so a client
 that offers the clause in its query surface SHOULD read it.
 
+**Exactness sits after the `only` flag and is the newest field — and it is the
+one field on this wire whose absence is NOT its default.** It is a byte, `0` when
+the node calls the answer provably the records the question names and `1` when it
+does not, followed by a length-prefixed reason: the node's own words when the
+byte is `1`, and empty when it is `0`.
+
+```
++--------+------------------+
+| exact  | reason (text)    |
+| 1 byte | 4-byte len + utf8|
++--------+------------------+
+```
+
+Every other appended field in this body follows the rule that absent means the
+default, because the default is what an older node's read actually *was*: a node
+that never heard of `ONLY` served reads that were not `ONLY` reads. **This field
+breaks that pattern deliberately.** A node that predates it did not serve exact
+answers and forget to say so — it made no claim at all. Reading an absent
+exactness as `0` would put a promise into the mouth of a node that never made
+one, on the property whose entire purpose is that a caller never has to infer it.
+
+So a client MUST distinguish **three** states and MUST NOT collapse them into
+two:
+
+| state | what the node said |
+|---|---|
+| byte `0` | the answer is provably the records the question names |
+| byte `1` + reason | it is not, and here is why |
+| field absent | the node said nothing; this is not the first state |
+
+A client whose type for this is a boolean has already lost the distinction, and
+the value it invents at the first `unwrap_or` is a promise nobody sent. A client
+that cannot represent the third state SHOULD surface the answer as unverified
+rather than as exact.
+
+The reason is carried on the wire rather than derived from the access path by the
+client. A client that phrased it itself would be describing a read it did not
+perform, and would go on describing it after the node's own wording changed.
+
+A client that ignores the field entirely is conforming — but it is exactly the
+client this field exists for, since an approximate answer and an exact one are
+the same shape, the same length, and frequently the same records.
+
 **Record identities are text**, exactly as the store spells them — not a parsed
 structure. A client that wants to name a record writes that text into its next
 script. A client that re-parses identities into a typed value has created a
@@ -991,6 +1034,29 @@ and `only` **only when true**, so a response with nothing to report is identical
 to what it would have been before either existed. A client **MUST** treat both as
 absent-by-default rather than requiring them. `records` is always an array, and
 holds at most one element when `only` is true — the key's type does not change.
+
+**Exactness rides inside `plan` on this transport, and it is the one key of a
+plan that is always present.** `plan.exact` is a JSON boolean written on every
+plan, and `plan.inexact` is a string carrying the reason, written only when
+`exact` is `false`:
+
+```json
+{"kind":"records","path":"approximate",
+ "plan":{"access":"approximate","exact":false,"index":"by_at",
+         "inexact":"an approximate index answered this, so a nearer record may exist",
+         "table":"points"},
+ "records":[…]}
+```
+
+Every other key of a plan is written only when the read had an answer for it, so
+a scan's plan is the two keys it knows. `exact` deliberately does not follow that
+rule: a key present only when interesting teaches a client that its absence means
+the dull value, and here the dull value is a claim.
+
+The three states of section 3.5 survive on this transport with a different shape.
+`plan.exact` present and `true` is the first, `false` with `inexact` the second,
+and **`plan` carrying no `exact` key at all** is the third — a node that predates
+the field. A client **MUST NOT** read the third as the first.
 
 **An element of `records` is a pair, not a value.**
 

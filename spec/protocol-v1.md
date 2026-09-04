@@ -263,7 +263,7 @@ u8      tag
 | tag | outcome | rest of the outcome |
 |---|---|---|
 | 0 | Done | nothing |
-| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) · `u32` note count · repeated: `text` kind, `text` message · `u8` only |
+| 1 | Records | `u8` access path · names (3.9) · `u32` record count · repeated: `text` identity, `bytes` value (§4) · `u32` note count · repeated: `text` kind, `text` message · `u8` only · `u8` exact, `text` reason · `u8` suggestion state, and when that state is `2`: `u32` count · repeated: `text` typed, `text` instead |
 | 2 | Value | names (3.9) · `bytes` value (§4) |
 | 3 | Keys | `u32` count · repeated `text` |
 | 4 | Removed | `u64` count of records a conditional delete removed |
@@ -395,6 +395,71 @@ perform, and would go on describing it after the node's own wording changed.
 A client that ignores the field entirely is conforming — but it is exactly the
 client this field exists for, since an approximate answer and an exact one are
 the same shape, the same length, and frequently the same records.
+
+**The suggestion sits after the exactness reason and is the newest field.** It is
+what the node thinks the query might have meant — advice about a *different*
+question, never an answer to the one that was asked. A term the collection does
+not hold earns a correction beside the records; the records themselves are the
+records the query as typed returns, and a node that substituted a correction into
+the read it executed would be answering a question nobody put.
+
+It begins with one state byte:
+
+```
++--------+-----------------------------------------------+
+| state  | when state is 2: u32 count, then that many     |
+| 1 byte | pairs of  typed (text) · instead (text)        |
++--------+-----------------------------------------------+
+```
+
+| byte | what the node said |
+|---|---|
+| `0` | no term dictionary was consulted for this read |
+| `1` | one was, and it holds every term the query named |
+| `2` | one was, and here is what it holds instead |
+| any other | read as silence — see below |
+
+**States `0` and `1` are the pair that must not collapse.** `1` is a claim about
+the collection: a dictionary was asked and found nothing to fix. `0` is the
+absence of a claim — nothing was looked for, because the field carried no search
+index or the statement searched nothing. A client that renders both as *no
+suggestions* is reporting a negative the node never checked, and will do it on
+every read of an unindexed field.
+
+A suggestion needs a term dictionary, and only a search index has one, so `0` is
+what nearly every read on this wire carries. That is the field working, not the
+field missing.
+
+**A state this build does not know reads as silence**, the same as the field
+being absent. A newer node saying something in a vocabulary this client lacks is
+not a malformed answer, and the outcome's length (3.5) already carries the reader
+past whatever followed the byte. A client MUST NOT refuse the outcome over it.
+
+**Absent is a fourth state, and unlike exactness it is not a trap.** A node built
+before this field made no suggestion for the same reason it made none for any
+read: it has no dictionary walk at all. So absent and `0` tell a caller the same
+thing — nothing was asked — and a client that collapses them loses only the
+*cause*, not the answer. They differ in what they say about the node rather than
+about the collection, which is why a client SHOULD still carry them separately
+and MUST NOT read either as `1`.
+
+Nearness is the node's own, and a client MUST NOT compute its own. The walk
+behind a correction is the one `MATCHES FUZZY` runs, mandatory non-fuzzy prefix
+included, so a typo in the leading characters of a word earns no correction at
+all. A client that ran a looser walk over terms it had seen would suggest words
+the node's own fuzzy operator refuses to match, and the reader would be offered a
+correction that returns nothing.
+
+`typed` is the term as the query asked for it, **after analysis** — lowercased,
+folded and stemmed by the field's analyzer — and not the raw substring the reader
+wrote. A client that highlights the correction inside the original query string
+matches on that basis or not at all.
+
+A client that ignores the field is conforming. A client that offers it MUST
+present it as a suggestion and MUST NOT re-run the query with the correction
+substituted on the reader's behalf without being asked to: the substituted read
+returns different records at a plausible score, and nothing in the answer says
+the question changed.
 
 **Record identities are text**, exactly as the store spells them — not a parsed
 structure. A client that wants to name a record writes that text into its next
@@ -1001,7 +1066,7 @@ Each outcome object carries a `kind`. There are six:
 | `kind` | wire tag (3.5) | shape |
 |---|---|---|
 | `done` | 0 | `{"kind":"done"}` |
-| `records` | 1 | `{"kind":"records","path":…,"plan":…,"records":[…]}`, with optional `notes` and `only` |
+| `records` | 1 | `{"kind":"records","path":…,"plan":…,"records":[…]}`, with optional `notes`, `only` and `suggestion` |
 | `value` | 2 | `{"kind":"value","value":…}`, or `{"kind":"value"}` — see below |
 | `keys` | 3 | `{"kind":"keys","keys":["…"]}` |
 | `removed` | 4 | `{"kind":"removed","count":2}` |
@@ -1057,6 +1122,40 @@ The three states of section 3.5 survive on this transport with a different shape
 `plan.exact` present and `true` is the first, `false` with `inexact` the second,
 and **`plan` carrying no `exact` key at all** is the third — a node that predates
 the field. A client **MUST NOT** read the third as the first.
+
+**The suggestion is a top-level key on this transport, and its three states are
+two JSON facts.** The wire's state byte becomes the presence of the key and the
+length of the list inside it:
+
+```json
+{"kind":"records","path":"scan",
+ "plan":{"access":"scan","exact":true,"table":"notes"},
+ "suggestion":{"corrections":[{"typed":"vecter","instead":"vector"}]},
+ "records":[]}
+```
+
+| JSON | wire byte | what the node said |
+|---|---|---|
+| key absent | `0` | no term dictionary was consulted |
+| `{"corrections":[]}` | `1` | one was, and it holds every term the query named |
+| `{"corrections":[…]}` | `2` | one was, and here is what it holds instead |
+
+**Present-and-empty is the claim; absent is the absence of one.** This is the
+one place on this transport where an absent key does not mean *the dull value* —
+it means the question was never asked, and a client that treats it as *nothing is
+near* reports a negative the node never checked. It is the same distinction
+section 3.5 draws between state `0` and state `1`, carried by the key rather than
+by a byte, and it is why the empty object is written out rather than omitted.
+
+The wire's fourth state — a node too old to have the field — does not exist
+separately here, because a node that never had the field never writes the key and
+a node that has it writes the key only when a dictionary was consulted. Both read
+as absent, which on this transport is the honest answer for both.
+
+Everything section 3.5 says about the field holds here: `typed` is the analyzed
+term rather than what the reader wrote, the corrections are advice about a
+different question, and a client MUST NOT silently re-run the read with one
+substituted in.
 
 **An element of `records` is a pair, not a value.**
 

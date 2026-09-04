@@ -1175,6 +1175,165 @@
         "records": []
       },
       "note": "The third state of §3.5 on this transport: a plan with no `exact` key at all is a node that predates the field and made NO claim. A client MUST NOT read it as `exact: true`."
+    },
+    {
+      "name": "outcome-records-suggestion-not-sought",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "scan",
+            "exact": true,
+            "table": "users"
+          },
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "scan",
+        "plan": {
+          "access": "scan",
+          "exact": true,
+          "table": "users"
+        },
+        "records": []
+      },
+      "note": "No `suggestion` key: no term dictionary was consulted, which is nearly every read on this transport. This is the ABSENCE of a claim and MUST NOT be read as `nothing is near`."
+    },
+    {
+      "name": "outcome-records-suggestion-nothing-nearer",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "index",
+            "exact": true,
+            "table": "users",
+            "index": "by_body"
+          },
+          "suggestion": [],
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "index",
+        "plan": {
+          "access": "index",
+          "exact": true,
+          "table": "users",
+          "index": "by_body"
+        },
+        "suggestion": {
+          "corrections": []
+        },
+        "records": []
+      },
+      "note": "Present and EMPTY is the claim: a dictionary was asked and holds every term the query named. A client that renders this identically to the case above has reported a negative the node never checked."
+    },
+    {
+      "name": "outcome-records-suggestion-did-you-mean",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "index",
+            "exact": true,
+            "table": "notes",
+            "index": "by_body"
+          },
+          "suggestion": [
+            {
+              "typed": "vecter",
+              "instead": "vector"
+            }
+          ],
+          "rows": []
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "index",
+        "plan": {
+          "access": "index",
+          "exact": true,
+          "table": "notes",
+          "index": "by_body"
+        },
+        "suggestion": {
+          "corrections": [
+            {
+              "typed": "vecter",
+              "instead": "vector"
+            }
+          ]
+        },
+        "records": []
+      },
+      "note": "`typed` is the term AFTER the field's analyzer ran, not the substring the reader wrote. The records are the ones the query as typed returns — a correction is advice about a different question and is never substituted into the executed read."
+    },
+    {
+      "name": "outcome-records-suggestion-beside-records-that-answered",
+      "outcome": {
+        "records": {
+          "plan": {
+            "access": "index",
+            "exact": true,
+            "table": "notes",
+            "index": "by_body"
+          },
+          "suggestion": [
+            {
+              "typed": "vecter",
+              "instead": "vector"
+            }
+          ],
+          "rows": [
+            {
+              "id": {
+                "record": {
+                  "table": 7,
+                  "id": {
+                    "int": "3"
+                  }
+                }
+              },
+              "value": {
+                "object": {
+                  "body": {
+                    "string": "the engine stores every vector"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "json": {
+        "kind": "records",
+        "path": "index",
+        "plan": {
+          "access": "index",
+          "exact": true,
+          "table": "notes",
+          "index": "by_body"
+        },
+        "suggestion": {
+          "corrections": [
+            {
+              "typed": "vecter",
+              "instead": "vector"
+            }
+          ]
+        },
+        "records": [
+          {
+            "id": "3",
+            "value": {
+              "body": "the engine stores every vector"
+            }
+          }
+        ]
+      },
+      "note": "A query that gets one word right and one wrong returns records AND earns a correction. A client that only surfaces suggestions on an empty answer stays silent exactly where a reader most needs it."
     }
   ],
   "gaps": [

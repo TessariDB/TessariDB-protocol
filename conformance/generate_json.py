@@ -342,6 +342,18 @@ def spell_outcome(outcome, names):
             ]
         if payload.get("only"):
             out["only"] = True
+        # NOT `.get()`, and that is the whole point of the field. Present-and-
+        # empty says a dictionary was asked and holds every term; absent says
+        # nothing was looked for. Reading this with `.get(...)` would fold the
+        # claim into the absence of one, which is the client bug §5.6 warns
+        # about, written into the generator that is supposed to catch it.
+        if "suggestion" in payload:
+            out["suggestion"] = {
+                "corrections": [
+                    {"typed": pair["typed"], "instead": pair["instead"]}
+                    for pair in payload["suggestion"]
+                ]
+            }
         # An element is a PAIR, not a value: a client that types this array as
         # the records reads one level too high.
         #
@@ -596,6 +608,51 @@ OUTCOME_CASES = [
         "at all is a node that predates the field and made NO claim. A client MUST "
         "NOT read it as `exact: true`.",
         {"records": {"plan": {"access": "scan", "table": "users"}, "rows": []}},
+    ),
+    (
+        "outcome-records-suggestion-not-sought",
+        "No `suggestion` key: no term dictionary was consulted, which is nearly "
+        "every read on this transport. This is the ABSENCE of a claim and MUST "
+        "NOT be read as `nothing is near`.",
+        {"records": {
+            "plan": {"access": "scan", "exact": True, "table": "users"},
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-suggestion-nothing-nearer",
+        "Present and EMPTY is the claim: a dictionary was asked and holds every "
+        "term the query named. A client that renders this identically to the "
+        "case above has reported a negative the node never checked.",
+        {"records": {
+            "plan": {"access": "index", "exact": True, "table": "users", "index": "by_body"},
+            "suggestion": [],
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-suggestion-did-you-mean",
+        "`typed` is the term AFTER the field's analyzer ran, not the substring "
+        "the reader wrote. The records are the ones the query as typed returns — "
+        "a correction is advice about a different question and is never "
+        "substituted into the executed read.",
+        {"records": {
+            "plan": {"access": "index", "exact": True, "table": "notes", "index": "by_body"},
+            "suggestion": [{"typed": "vecter", "instead": "vector"}],
+            "rows": [],
+        }},
+    ),
+    (
+        "outcome-records-suggestion-beside-records-that-answered",
+        "A query that gets one word right and one wrong returns records AND earns "
+        "a correction. A client that only surfaces suggestions on an empty answer "
+        "stays silent exactly where a reader most needs it.",
+        {"records": {
+            "plan": {"access": "index", "exact": True, "table": "notes", "index": "by_body"},
+            "suggestion": [{"typed": "vecter", "instead": "vector"}],
+            "rows": [{"id": {"record": {"table": 7, "id": {"int": "3"}}},
+                      "value": {"object": {"body": {"string": "the engine stores every vector"}}}}],
+        }},
     ),
 ]
 
